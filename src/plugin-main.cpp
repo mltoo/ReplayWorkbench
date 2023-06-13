@@ -19,6 +19,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs-module.h>
 
 #include "plugin-macros.generated.h"
+#include "blockCirclebuf.hpp"
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
@@ -27,7 +28,8 @@ bool obs_module_load(void)
 {
 	blog(LOG_INFO, "plugin loaded successfully (version %s)",
 	     PLUGIN_VERSION);
-    blog(LOG_INFO, "HOLY SHIT ITS WORKING!!!");
+	blog(LOG_INFO, "HOLY SHIT ITS WORKING!!!");
+//	BlockCirclebuf<uint8_t> a;
 	return true;
 }
 

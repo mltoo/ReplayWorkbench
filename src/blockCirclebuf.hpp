@@ -1,0 +1,86 @@
+#pragma once
+
+#include <vector>
+
+namespace ReplayWorkbench {
+
+/*
+ * Circular-buffer-like datastructure, but where the buffer is split across 
+ * several `blocks' (which may be non-contiguous) which can be further logically
+ * subdivided in O(1) at any time. These blocks can be `write-protected' at any
+ * time, which prevents the currently stored data from being overwritten; the 
+ * write-head just moves to the next unprotected block to continue.
+ */
+template<typename T> class BlockCirclebuf {
+public:
+	class Block;
+	
+	/*
+	 * `Superblock' of blocks declared within a single memory allocation.
+	 * Essentially only necessary to keep track of root of free list node 
+	 * despite splitting blocks, etc.
+	 */
+	typedef struct {
+		T *allocationStart;
+	} SuperblockAllocation;
+
+	/*
+	 * Pointer to a position in the BlockCirclebuf
+	 */
+	typedef struct {
+		Block *block;
+		T *ptr;
+	} BCPtr;
+
+	class Block {
+	private:
+		SuperblockAllocation *parentSuperblock;
+		bool writeProtect = false;
+		bool readProtect = false;
+		T *blockStart;
+		size_t blockLength;
+		Block *next;
+		Block *prev;
+
+	public:
+		Block(SuperblockAllocation *parentSuperblock, T *blockStart,
+		      size_t blockLength, Block *prev, Block *next);
+		void split(T *splitPoint, Block *newBlock);
+		void split(BCPtr splitPoint, Block *newBlock);
+		void protect();
+		void unprotect();
+		bool isProtected();
+		size_t getLength();
+		T* getStartPtr();
+		Block* getNext();
+		Block* getPrev();
+
+	private:
+		/*
+		 * Initialises a block with itself as its next and previous.
+		 * Intended for starting a new BlockCirclebuf
+		 */
+		Block(SuperblockAllocation *parentSuperblock, T *blockStart,
+		      size_t blockLength);
+	};
+
+private:
+	std::vector<SuperblockAllocation> superblockAllocations;
+	BCPtr head;
+	BCPtr tail;
+
+	void allocateSuperblock(size_t size, Block *firstBlock);
+
+public:
+	BlockCirclebuf(size_t size, Block *firstBlock);
+	void allocateSuperblock(size_t size, Block *firstBlock, Block *prev,
+				Block *next);
+	void write(T *input, size_t count);
+	size_t read(T *buffer, size_t count);
+	size_t ptrDifference(BCPtr a, BCPtr b);
+	size_t bufferHealth();
+};
+}
+
+//include implementation here to allow template expansion at compile time:
+#include "blockCirclebuf.cpp"
