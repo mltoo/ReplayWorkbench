@@ -29,7 +29,7 @@ bool obs_module_load(void)
 	blog(LOG_INFO, "plugin loaded successfully (version %s)",
 	     PLUGIN_VERSION);
 	blog(LOG_INFO, "HOLY SHIT ITS WORKING!!!");
-//	BlockCirclebuf<uint8_t> a;
+	//	BlockCirclebuf<uint8_t> a;
 	return true;
 }
 
