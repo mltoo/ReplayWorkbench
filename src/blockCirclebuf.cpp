@@ -12,7 +12,8 @@ typename BlockCirclebuf<T>::Block *
 BlockCirclebuf<T>::allocateSuperblock(size_t size)
 {
 	Block *firstBlock = bmalloc(sizeof(Block));
-	superblockAllocations.push_back({(T *)bmalloc(size * sizeof(T))});
+	superblockAllocations.push_back(
+		SuperblockAllocation((T *)bmalloc(size * sizeof(T))));
 	SuperblockAllocation &alloc = superblockAllocations.back();
 	*firstBlock = Block(*alloc, alloc.allocationStart, size);
 	return firstBlock;
@@ -24,7 +25,7 @@ void BlockCirclebuf<T>::allocateSuperblock(size_t size, Block *prev,
 {
 	Block *firstBlock = bmalloc(sizeof(Block));
 	superblockAllocations.push_back(
-		{.allocationStart = (T *)bmalloc(size * sizeof(T))});
+		SuperblockAllocation((T *)bmalloc(size * sizeof(T))));
 	SuperblockAllocation &alloc = superblockAllocations.back();
 	&firstBlock = Block(*alloc, alloc.allocationStart, size, prev, next);
 	prev->next = firstBlock;
@@ -318,4 +319,10 @@ BlockCirclebuf<T>::BCPtr::operator=(const BCPtr &other)
 	this->ptr = other->ptr;
 
 	return *this;
+}
+
+template<typename T>
+BlockCirclebuf<T>::SuperblockAllocation::SuperblockAllocation(T *allocationStart)
+{
+	this->allocationStart = allocationStart;
 }

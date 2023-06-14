@@ -20,9 +20,11 @@ public:
 	 * Essentially only necessary to keep track of root of free list node 
 	 * despite splitting blocks, etc.
 	 */
-	typedef struct {
+	struct SuperblockAllocation {
 		T *allocationStart;
-	} SuperblockAllocation;
+
+		SuperblockAllocation(T* allocationStart);	
+	};
 
 	/*
 	 * Pointer to a position in the BlockCirclebuf
