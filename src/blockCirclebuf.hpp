@@ -44,15 +44,15 @@ public:
 	class Block {
 	private:
 		SuperblockAllocation *parentSuperblock;
-		bool writeProtect = false;
-		bool readProtect = false;
+		bool writeProtect;
+		bool readProtect;
 		T *blockStart;
 		size_t blockLength;
 		Block *next;
 		Block *prev;
-		bool willReconcilePrev = false;
-		bool willReconcileNext = false;
-		BCPtr *referencingPtrs = NULL;
+		bool willReconcilePrev;
+		bool willReconcileNext;
+		BCPtr *referencingPtrs;
 
 	public:
 		Block(SuperblockAllocation *parentSuperblock, T *blockStart,

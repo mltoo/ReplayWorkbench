@@ -41,7 +41,14 @@ BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
 	this->blockStart = blockStart;
 	this->blockLength = blockLength;
 	this->next = next;
+	next->prev = this;
 	this->prev = prev;
+	prev->next = this;
+	this->writeProtect = false;
+	this->readProtect = false;
+	this->willReconcileNext = false;
+	this->willReconcilePrev = false;
+	referencingPtrs = NULL;
 }
 
 template<typename T>
