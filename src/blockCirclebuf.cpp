@@ -206,7 +206,7 @@ template<typename T> void BlockCirclebuf<T>::write(T *input, size_t count)
 
 template<typename T> bool BlockCirclebuf<T>::Block::attemptReconcileNext()
 {
-	next->attemptReconcilePrev();
+	return next->attemptReconcilePrev();
 }
 
 template<typename T> bool BlockCirclebuf<T>::Block::attemptReconcilePrev()
