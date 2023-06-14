@@ -12,8 +12,7 @@ typename BlockCirclebuf<T>::Block *
 BlockCirclebuf<T>::allocateSuperblock(size_t size)
 {
 	Block *firstBlock = bmalloc(sizeof(Block));
-	superblockAllocations.push_back(
-		{.allocationStart = (T *)bmalloc(size * sizeof(T))});
+	superblockAllocations.push_back({(T *)bmalloc(size * sizeof(T))});
 	SuperblockAllocation &alloc = superblockAllocations.back();
 	*firstBlock = Block(*alloc, alloc.allocationStart, size);
 	return firstBlock;
