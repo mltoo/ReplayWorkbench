@@ -23,7 +23,7 @@ public:
 	struct SuperblockAllocation {
 		T *allocationStart;
 
-		SuperblockAllocation(T* allocationStart);	
+		SuperblockAllocation(T *allocationStart);
 	};
 
 	/*
