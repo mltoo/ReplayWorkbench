@@ -1,11 +1,11 @@
-#pragma once
 #include "blockCirclebuf.hpp"
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
 #include <util/base.h>
 #include <util/bmem.h>
-using namespace ReplayWorkbench;
+
+namespace ReplayWorkbench {
 
 template<typename T>
 typename BlockCirclebuf<T>::Block *
@@ -186,7 +186,8 @@ template<typename T> void BlockCirclebuf<T>::write(T *input, size_t count)
 			}
 		}
 
-		memcpy(head.ptr, input + numRead, numInCurrentBlock);
+		memcpy(head.ptr, input + numRead,
+		       numInCurrentBlock * sizeof(T));
 		numRead += numInCurrentBlock;
 		head.ptr += numInCurrentBlock;
 		if (head.ptr >=
@@ -325,4 +326,14 @@ template<typename T>
 BlockCirclebuf<T>::SuperblockAllocation::SuperblockAllocation(T *allocationStart)
 {
 	this->allocationStart = allocationStart;
+}
+
+template<typename T> void BlockCirclebuf<T>::advanceHead(size_t size)
+{
+	//TODO
+	if (!bufferHealth() > size) {
+		advanceTail(size);	
+	}
+}
+
 }
