@@ -1,6 +1,6 @@
 /*
-Plugin Name
-Copyright (C) <Year> <Developer> <Email Address>
+Replay Workbench for Open Broadcaster Software
+Copyright (C) 2023 Alexander Thomas alexmalt001@live.co.uk
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -19,17 +19,24 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs-module.h>
 
 #include "plugin-macros.generated.h"
-#include "blockCirclebuf.hpp"
+//#include "blockCirclebuf.hpp"
+//#include "ReplayFilter.hpp"
+//#include "ClipEncoder.hpp"
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
+
+struct obs_source_info filterInfo;
 
 bool obs_module_load(void)
 {
 	blog(LOG_INFO, "plugin loaded successfully (version %s)",
 	     PLUGIN_VERSION);
-	blog(LOG_INFO, "HOLY SHIT ITS WORKING!!!");
 	//	BlockCirclebuf<uint8_t> a;
+
+	//filterInfo = ReplayWorkbench::initFilterInfo();
+	//obs_register_source(&filterInfo);
+
 	return true;
 }
 
