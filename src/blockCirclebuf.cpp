@@ -41,10 +41,32 @@ BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
 	this->parentSuperblock = parentSuperblock;
 	this->blockStart = blockStart;
 	this->blockLength = blockLength;
-	this->next = next;
-	next->prev = this;
-	this->prev = next->prev;
-	this->prev->next = this;
+	this->tailPassedYet = true;
+	this->tailDirection = false;
+	if (next != this) {
+		this->next = next;
+		this->prev = next->prev;
+		next->prev = this;
+		if (next == this->prev->logicalNext) {
+			this->logicalNext = this->prev->logicalNext;
+			this->prev->logicalNext = this;
+		} else {
+			this->logicalNext = this->prev->logicalNext;
+			this->prev->logicalNext = this;
+			this->tailDirection = this->prev->tailDirection;
+			this->prev->tailDirection = false;
+		}
+		this->tailPassedYet = next->tailPassedYet;
+
+		this->prev->next = this;
+
+	} else {
+		this->next = this;
+		this->prev = this;
+		this->logicalNext = this;
+		this->tailPassedYet = true;
+		this->tailDirection = false;
+	}
 	this->willReconcileNext = false;
 	this->willReconcilePrev = false;
 	referencingPtrs = NULL;
@@ -59,19 +81,24 @@ BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
 
 template<typename T> void BlockCirclebuf<T>::Block::split(T *splitPoint)
 {
-	Block *newBlock = (Block *)bmalloc(sizeof(Block));
+
 	if (splitPoint < blockStart || splitPoint > blockStart + blockLength)
 		throw std::out_of_range(
 			"Tried to split a BlockCirclebuf block at an out-of-range splitPoint");
-	//if ((splitPoint - blockStart) % sizeof(T) != 0)
-	//	throw std::runtime_error(
-	//		"Tried to split a BlockCirclebuf at a misaligned location");
 
-	&newBlock = (parentSuperblock, splitPoint,
-		     blockLength - (splitPoint - blockStart), this, next);
+	void *newBlockSpace = bmalloc(sizeof(Block));
+	Block *newBlock = new (newBlockSpace)
+		Block(parentSuperblock, splitPoint,
+		      blockLength - (splitPoint - blockStart), this, 
+		      this->next);
 	blockLength = blockLength - newBlock->blockLength;
 	next->prev = newBlock;
-	next = newBlock;
+	newBlock->next = this->next;
+	this->next = newBlock;
+	next->logicalNext = this->logicalNext;
+	this->logicalNext = next;
+	next->tailDirection = this->tailDirection;
+	next->tailPassedYet = true;
 
 	//update all pointers after the split:
 	BCPtr *currentBCPtr = this->referencingPtrs;
@@ -225,6 +252,7 @@ template<typename T> bool BlockCirclebuf<T>::Block::attemptReconcilePrev()
 	if (prev->referencingPtrs)
 		prev->referencingPtrs->prev = NULL;
 
+	this->~Block();
 	bfree(this);
 	return true;
 }
@@ -367,7 +395,8 @@ template<typename T> void BlockCirclebuf<T>::reserveNonContiguous(size_t n)
 		advanceTail(n - alreadyReserved);
 }
 
-template<typename T> void BlockCirclebuf<T>::reserveContiguous(size_t n)
+template<typename T>
+typename BlockCirclebuf<T>::BCPtr BlockCirclebuf<T>::reserveContiguous(size_t n)
 {
 	Block *block = head->getBlock();
 	if ((block->getStartPtr() + block->getLength()) - head->getPtr() >= n) {
@@ -376,6 +405,7 @@ template<typename T> void BlockCirclebuf<T>::reserveContiguous(size_t n)
 			if (alreadyReserved < n)
 				advanceTail(ptrDifference(head, tail) - n);
 		}
+		return head;
 	} else {
 		if (tail->getBlock() == block &&
 		    tail->getPtr() > head->getPtr())
@@ -390,22 +420,19 @@ template<typename T> void BlockCirclebuf<T>::reserveContiguous(size_t n)
 		if (block == head->getBlock()) {
 			if (block->getLength() >= n) {
 				advanceTail(ptrDifference(tail, head));
-				tail.move(block, block->getStartPtr());
-				head.move(block, block->getStartPtr());
 			} else {
 				throw std::runtime_error(
 					"contiguous write too large for any "
 					"block in BlockCirclebuf");
 			}
 		} else {
-			advanceHead(ptrDifference(
-				head, BCPtr(block, block->getStartPtr())));
 			if (tail->getBlock() == block) {
 				size_t alreadyReserved =
-					ptrDifference(head, tail);
+					tail.getPtr() - block->getStartPtr();
 				advanceTail(n - alreadyReserved);
 			}
 		}
+		return BCPtr(block, block->getStartPtr());
 	}
 }
 }

@@ -104,7 +104,9 @@ public:
 
 	public:
 		/**
-		 * Construct a block between two existing blocks.
+		 * Construct a block before an existing block. Preferably
+		 * blocks should only be made before data is written or any
+		 * blocks are split, otherwise this probably needs re-writing
 		 *
 		 * @param parentSuperblock The superblock containing this block
 		 * @param blockStart Pointer to where this block should start
@@ -245,8 +247,9 @@ protected:
 	 *
 	 * @param n The number of contiguous bytes to be reserved between the
 	 *	head and tail pointers
+	 * @return The start of the reserved contiguous block
 	 */
-	virtual void reserveContiguous(size_t n);
+	virtual BCPtr reserveContiguous(size_t n);
 
 public:
 	/**
