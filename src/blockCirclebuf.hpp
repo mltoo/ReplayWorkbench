@@ -95,6 +95,9 @@ public:
 		size_t blockLength;
 		Block *next;
 		Block *prev;
+		Block *logicalNext;
+		bool tailDirection;
+		bool tailPassedYet;
 		bool willReconcilePrev;
 		bool willReconcileNext;
 		BCPtr *referencingPtrs;
@@ -107,11 +110,10 @@ public:
 		 * @param blockStart Pointer to where this block should start
 		 * @param blockLength The length of the block, as a number of
 		 *	`T` objects it can contain
-		 * @param prev The block which should precede the new block
 		 * @param next The block which should follow the new block
 		 */
 		Block(SuperblockAllocation *parentSuperblock, T *blockStart,
-		      size_t blockLength, Block *prev, Block *next);
+		      size_t blockLength, Block *next);
 
 		/**
 		 * Split the block in two at a certain point. The new block

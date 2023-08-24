@@ -36,7 +36,6 @@ void BlockCirclebuf<T>::allocateSuperblock(size_t size, Block *prev,
 template<typename T>
 BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
 				T *blockStart, size_t blockLength,
-				BlockCirclebuf<T>::Block *prev,
 				BlockCirclebuf<T>::Block *next)
 {
 	this->parentSuperblock = parentSuperblock;
@@ -44,8 +43,8 @@ BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
 	this->blockLength = blockLength;
 	this->next = next;
 	next->prev = this;
-	this->prev = prev;
-	prev->next = this;
+	this->prev = next->prev;
+	this->prev->next = this;
 	this->willReconcileNext = false;
 	this->willReconcilePrev = false;
 	referencingPtrs = NULL;
@@ -54,7 +53,7 @@ BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
 template<typename T>
 BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
 				T *blockStart, size_t blockLength)
-	: Block(parentSuperblock, blockStart, blockLength, this, this)
+	: Block(parentSuperblock, blockStart, blockLength, this)
 {
 }
 
