@@ -24,7 +24,7 @@ public:
 	 */
 	struct SuperblockAllocation {
 		T *allocationStart;
-		
+
 		/**
 		 * Initialised a superblock around an allocated section of
 		 * memory
@@ -64,7 +64,7 @@ public:
 		 * @param copy The `BCPtr` to copy from
 		 */
 		BCPtr(BCPtr &copy);
-		
+
 		/**
 		 * Destroy a `BCPtr` and remove it from its linked list
 		 */
@@ -77,6 +77,16 @@ public:
 		 * @param other The `BCPtr` to copy from
 		 */
 		BCPtr &operator=(const BCPtr &other);
+
+		/**
+		 * Get the block the `BCPtr` is within
+		 *
+		 * @return The block the `BCPtr` is within
+		 */
+		Block *getBlock();
+		T *getPtr();
+
+		void move(Block *newBlock, T *newPos);
 	};
 
 	class Block {
@@ -105,7 +115,6 @@ public:
 		 */
 		Block(SuperblockAllocation *parentSuperblock, T *blockStart,
 		      size_t blockLength, Block *prev, Block *next);
-
 
 		/**
 		 * Split the block in two at a certain point. The new block
@@ -230,6 +239,11 @@ private:
 	 * @return The first block of the new superblock
 	 */
 	Block *allocateSuperblock(size_t size);
+	
+	/**
+	 * Advances the tail pointer to the start of the next block
+	 */
+	virtual void advanceTailToNextBlock();
 
 protected:
 	/**
@@ -247,6 +261,24 @@ protected:
 	 *	be advanced
 	 */
 	virtual void advanceTail(size_t jump);
+
+	/**
+	 * Moves the `tail` pointer onwards sufficiently to allow the head to 
+	 * advance by `n` non-contiguous bytes.
+	 * 
+	 * @param n The number of bytes to be reserved between the head and
+	 *	tail pointers
+	 */
+	virtual void reserveNonContiguous(size_t n);
+
+	/**
+	 * Moves the `tail` pointer onwards sufficiently to allow the head to
+	 * advance over a section containing a minimum of `n` contiguous bytes.
+	 *
+	 * @param n The number of contiguous bytes to be reserved between the
+	 *	head and tail pointers
+	 */
+	virtual void reserveContiguous(size_t n);
 
 public:
 	/**
@@ -268,7 +300,8 @@ public:
 	void allocateSuperblock(size_t size, Block *prev, Block *next);
 
 	/**
-	 * Write objects from a buffer into the circlebuf.
+	 * Write objects from a buffer into the circlebuf. Written data may
+	 * cross block boundaries
 	 *
 	 * @param input The input buffer
 	 * @param count The number of `T` objects to be read
@@ -285,7 +318,7 @@ public:
 	virtual size_t read(T *buffer, size_t count);
 
 	/**
-	 * Get the distance between two `BCPtrs`
+	 * Get the distance between two `BCPtrs`, from `a` to `b`
 	 *
 	 * @param a The first `BCPtr`
 	 * @param b The second `BCPtr`
@@ -294,10 +327,10 @@ public:
 	size_t ptrDifference(BCPtr &a, BCPtr &b);
 
 	/**
-	 * Get the amount of free space in the circlebuf (i.e. distance
-	 * between head and tail pointers)
+	 * Get the amount of data in the circlebuf (i.e. distance between head
+	 * and tail pointers)
 	 *
-	 * @return The amount of free space in the circlebuf
+	 * @return The amount of data in the circlebuf
 	 */
 	size_t bufferHealth();
 };
