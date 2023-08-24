@@ -7,9 +7,8 @@ namespace ReplayWorkbench {
 /**
  * Circular-buffer-like datastructure, but where the buffer is split across 
  * several `blocks' (which may be non-contiguous) which can be further logically
- * subdivided in O(1) at any time. These blocks can be `write-protected' at any
- * time, which prevents the currently stored data from being overwritten; the 
- * write-head just moves to the next unprotected block to continue.
+ * subdivided in O(1) at any time. Blocks may be temporarily excluded from the
+ * chain, to be merged back in at a later time
  *
  * @tparam T The type of object the `BlockCirclebuf<T>` will contain
  */
@@ -92,8 +91,6 @@ public:
 	class Block {
 	private:
 		SuperblockAllocation *parentSuperblock;
-		bool writeProtect;
-		bool readProtect;
 		T *blockStart;
 		size_t blockLength;
 		Block *next;
@@ -133,37 +130,6 @@ public:
 		 *	split
 		 */
 		void split(BCPtr &splitPoint);
-
-		/**
-		 * Protect the block from writing. After the read head has read
-		 * the last content of the block to be written, it will also be
-		 * read-protected to avoid corrupting the order of data read 
-		 * from the buffer
-		 */
-		void protect();
-
-		/**
-		 * Remove read and write protection. Removal of read protection
-		 * is delayed until after the write head next enters the block,
-		 * to avoid corrupting the order of data read from the buffer
-		 */
-		void unprotect();
-
-		/**
-		 * Get whether or not the block is protected from writing
-		 *
-		 * @return Whether or not the block is protected from writing
-		 */
-		bool isWriteProtected();
-
-		/**
-		 * Get whether or not the block is protected from reading by
-		 * the main `tail` readhead.
-		 *
-		 * @return Whether or not the block is protected from reading 
-		 *	by the main `tail` readhead.
-		 */
-		bool isReadProtected();
 
 		/**
 		 * Get the length of the block's memory region, as a number of 
@@ -239,7 +205,7 @@ private:
 	 * @return The first block of the new superblock
 	 */
 	Block *allocateSuperblock(size_t size);
-	
+
 	/**
 	 * Advances the tail pointer to the start of the next block
 	 */

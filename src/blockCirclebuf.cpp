@@ -46,8 +46,6 @@ BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
 	next->prev = this;
 	this->prev = prev;
 	prev->next = this;
-	this->writeProtect = false;
-	this->readProtect = false;
 	this->willReconcileNext = false;
 	this->willReconcilePrev = false;
 	referencingPtrs = NULL;
@@ -72,8 +70,6 @@ template<typename T> void BlockCirclebuf<T>::Block::split(T *splitPoint)
 
 	&newBlock = (parentSuperblock, splitPoint,
 		     blockLength - (splitPoint - blockStart), this, next);
-	newBlock->writeProtect = writeProtect;
-	newBlock->readProtect = readProtect;
 	blockLength = blockLength - newBlock->blockLength;
 	next->prev = newBlock;
 	next = newBlock;
@@ -175,8 +171,6 @@ template<typename T> void BlockCirclebuf<T>::write(T *input, size_t count)
 			head.block->getLength() -
 				(head.ptr - head.block->getStartPtr()));
 
-		//TODO: handle read protection
-
 		//Handle cases where we overwrite the tail (advance tail past
 		//it)
 		if (tail.block == head.block && tail.ptr > head.ptr &&
@@ -187,25 +181,7 @@ template<typename T> void BlockCirclebuf<T>::write(T *input, size_t count)
 		       numInCurrentBlock * sizeof(T));
 		numRead += numInCurrentBlock;
 		head.ptr += numInCurrentBlock;
-		if (head.ptr >=
-		    head.block->getStartPtr() + head.block->getLength()) {
-			do {
-				head.block = head.block->getNext();
-				head.ptr = head.block->getStartPtr();
-				head.block.readProtect =
-					head.block.writeProtect;
-				if (!head.block.readProtect) {
-					if (head.block->willReconcilePrev)
-						head.block
-							->attemptReconcilePrev();
-
-					if (head.block->willReconcileNext)
-						head.block
-							->attemptReconcileNext();
-				}
-
-			} while (head.block->writeProtect);
-		}
+		advanceHead(numInCurrentBlock);
 	}
 }
 
@@ -228,16 +204,6 @@ template<typename T> bool BlockCirclebuf<T>::Block::attemptReconcilePrev()
 	if (prev->blockStart + prev->blockLength != this->blockStart)
 		return false;
 
-	//defer until read protection ends if either is read protected.
-	//(avoid merging in corrupted data/excluding good data)
-	if (this->readProtect || prev->readProtect) {
-		this->willReconcilePrev = true;
-		prev->willReconcileNext = true;
-		return false;
-	}
-
-	//perform reconciliation:
-	prev->writeProtect = this->writeProtect || prev->writeProtect;
 	prev->blockLength = prev->blockLength + this->blockLength;
 	prev->next = this->next;
 	this->next->prev = prev;
@@ -358,10 +324,10 @@ template<typename T> void BlockCirclebuf<T>::advanceTail(size_t size)
 	//TODO: not undefined behaviour
 	tail.ptr += size;
 	if (tail.ptr >= tail.block->getStartPtr() + tail.block->getLength()) {
-		do {
+		/*do {
 			tail.block = tail.block->getNext();
 			tail.ptr = tail.block->getStartPtr();
-		} while (tail.block->readProtect);
+		} while (tail.block->readProtect);*/
 	}
 	/*
 	size_t advanceRequired = 0;
@@ -417,9 +383,7 @@ template<typename T> void BlockCirclebuf<T>::reserveContiguous(size_t n)
 			advanceTailToNextBlock();
 
 		block = block->getNext();
-		//TODO: handle write protection groups/iteration counting
-		while ((block->getLength() < n || block->isWriteProtected()) &&
-		       block != head->getBlock()) {
+		while ((block->getLength() < n) && block != head->getBlock()) {
 			if (tail->getBlock() == block)
 				advanceTailToNextBlock();
 			block = block->getNext();
