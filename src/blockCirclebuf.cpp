@@ -5,28 +5,37 @@
 #include <util/base.h>
 #include <util/bmem.h>
 #include <util/c99defs.h>
+#include <new>
 
 namespace ReplayWorkbench {
 
 template<typename T>
 typename BlockCirclebuf<T>::Block *
-BlockCirclebuf<T>::allocateSuperblock(size_t size)
+BlockCirclebuf<T>::allocateSuperblock(const size_t size)
 {
 	Block *firstBlock = bmalloc(sizeof(Block));
-	superblockAllocations.push_back(
-		SuperblockAllocation((T *)bmalloc(size * sizeof(T))));
+	if (!firstBlock)
+		throw std::bad_alloc();
+	T *allocation = (T *)bmalloc(size * sizeof(T));
+	if (!allocation)
+		throw std::bad_alloc();
+	superblockAllocations.push_back(SuperblockAllocation(allocation));
 	SuperblockAllocation &alloc = superblockAllocations.back();
 	*firstBlock = Block(*alloc, alloc.allocationStart, size);
 	return firstBlock;
 }
 
 template<typename T>
-void BlockCirclebuf<T>::allocateSuperblock(size_t size, Block *prev,
+void BlockCirclebuf<T>::allocateSuperblock(const size_t size, Block *prev,
 					   Block *next)
 {
 	Block *firstBlock = bmalloc(sizeof(Block));
-	superblockAllocations.push_back(
-		SuperblockAllocation((T *)bmalloc(size * sizeof(T))));
+	if (!firstBlock)
+		throw std::bad_alloc();
+	T *allocation = (T *)bmalloc(size * sizeof(T));
+	if (!allocation)
+		throw std::bad_alloc();
+	superblockAllocations.push_back(SuperblockAllocation(allocation));
 	SuperblockAllocation &alloc = superblockAllocations.back();
 	&firstBlock = Block(*alloc, alloc.allocationStart, size, prev, next);
 	prev->next = firstBlock;
@@ -34,9 +43,9 @@ void BlockCirclebuf<T>::allocateSuperblock(size_t size, Block *prev,
 }
 
 template<typename T>
-BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
-				T *blockStart, size_t blockLength,
-				BlockCirclebuf<T>::Block *next)
+BlockCirclebuf<T>::Block::Block(
+	const SuperblockAllocation *const parentSuperblock, T *blockStart,
+	size_t blockLength, BlockCirclebuf<T>::Block *next) noexcept
 {
 	this->parentSuperblock = parentSuperblock;
 	this->blockStart = blockStart;
@@ -73,8 +82,9 @@ BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
 }
 
 template<typename T>
-BlockCirclebuf<T>::Block::Block(SuperblockAllocation *parentSuperblock,
-				T *blockStart, size_t blockLength)
+BlockCirclebuf<T>::Block::Block(
+	const SuperblockAllocation *const parentSuperblock, T *blockStart,
+	size_t blockLength) noexcept
 	: Block(parentSuperblock, blockStart, blockLength, this)
 {
 }
@@ -128,7 +138,8 @@ template<typename T> void BlockCirclebuf<T>::Block::split(T *splitPoint)
 		newBlock->referencingPtrs->prev = NULL;
 }
 
-template<typename T> void BlockCirclebuf<T>::Block::split(BCPtr &splitPoint)
+template<typename T>
+void BlockCirclebuf<T>::Block::split(const BCPtr &splitPoint)
 {
 	if (splitPoint.block != this)
 		throw std::runtime_error(
@@ -144,45 +155,50 @@ template<typename T> BlockCirclebuf<T>::BlockCirclebuf(size_t size)
 	tail = BCPtr(firstBlock, firstBlock->getStartPtr());
 }
 
-template<typename T> size_t BlockCirclebuf<T>::ptrDifference(BCPtr &a, BCPtr &b)
+template<typename T>
+size_t BlockCirclebuf<T>::ptrDifference(const BCPtr &a, const BCPtr &b) const noexcept
 {
 	size_t accumulator = 0;
 	BCPtr currentPosn(a);
-	while (currentPosn.block != b.block || currentPosn.ptr < b.ptr) {
-		accumulator +=
-			(currentPosn.block->getLength()) -
-			(currentPosn.ptr - currentPosn.block.getStartPtr());
-		currentPosn.ptr = currentPosn.block->getNext().getStartPtr();
-		currentPosn.block = currentPosn.block->getNext();
+	while (currentPosn.getBlock() != b.getBlock() ||
+	       currentPosn.getPtr() < b.getPtr()) {
+		accumulator += (currentPosn.getBlock()->getLength()) -
+			       (currentPosn.getPtr() -
+				currentPosn.getBlock()->getStartPtr());
+		currentPosn.getPtr() =
+			currentPosn.getBlock()->getNext()->getStartPtr();
+		currentPosn.getBlock() = currentPosn.getBlock()->getNext();
 	}
 
-	accumulator += b.ptr - a.ptr;
+	accumulator += b.getPtr() - a.getPtr();
 	return accumulator;
 }
 
-template<typename T> size_t BlockCirclebuf<T>::bufferHealth()
+template<typename T> size_t BlockCirclebuf<T>::bufferHealth() const noexcept
 {
 	return ptrDifference(tail, head);
 }
 
-template<typename T> size_t BlockCirclebuf<T>::Block::getLength()
+template<typename T> size_t BlockCirclebuf<T>::Block::getLength() const noexcept
 {
 	return blockLength;
 }
 
-template<typename T> T *BlockCirclebuf<T>::Block::getStartPtr()
+template<typename T> T *BlockCirclebuf<T>::Block::getStartPtr() const noexcept
 {
 	return blockStart;
 }
 
 template<typename T>
-typename BlockCirclebuf<T>::Block *BlockCirclebuf<T>::Block::getNext()
+typename BlockCirclebuf<T>::Block *
+BlockCirclebuf<T>::Block::getNext() const noexcept
 {
 	return next;
 }
 
 template<typename T>
-typename BlockCirclebuf<T>::Block *BlockCirclebuf<T>::Block::getPrev()
+typename BlockCirclebuf<T>::Block *
+BlockCirclebuf<T>::Block::getPrev() const noexcept
 {
 	return prev;
 }
@@ -258,29 +274,31 @@ template<typename T> bool BlockCirclebuf<T>::Block::attemptReconcilePrev()
 }
 
 template<typename T>
-const bool &BlockCirclebuf<T>::Block::getTailDirection() const
+bool BlockCirclebuf<T>::Block::getTailDirection() const noexcept
 {
 	return tailDirection;
 }
 
-template<typename T> void BlockCirclebuf<T>::Block::flipTailDirection()
+template<typename T> void BlockCirclebuf<T>::Block::flipTailDirection() noexcept
 {
 	tailDirection = !tailDirection;
 }
 
 template<typename T>
-const bool &BlockCirclebuf<T>::Block::getTailPassedYet() const
+bool BlockCirclebuf<T>::Block::getTailPassedYet() const noexcept
 {
 	return tailPassedYet;
 }
 
 template<typename T>
-void BlockCirclebuf<T>::Block::setTailPassedYet(const bool tailPassedYet)
+void BlockCirclebuf<T>::Block::setTailPassedYet(
+	const bool tailPassedYet) noexcept
 {
 	this->tailPassedYet = tailPassedYet;
 }
 
-template<typename T> BlockCirclebuf<T>::BCPtr::BCPtr(Block *block, T *ptr)
+template<typename T>
+BlockCirclebuf<T>::BCPtr::BCPtr(Block *block, T *ptr) noexcept
 {
 	if (ptr < block->getStartPtr() ||
 	    ptr >= block->getStartPtr() + block->getLength())
@@ -296,11 +314,12 @@ template<typename T> BlockCirclebuf<T>::BCPtr::BCPtr(Block *block, T *ptr)
 }
 
 template<typename T>
-BlockCirclebuf<T>::BCPtr::BCPtr(BCPtr &copy) : BCPtr(copy.block, copy.ptr)
+BlockCirclebuf<T>::BCPtr::BCPtr(const BCPtr &copy) noexcept
+	: BCPtr(copy.block, copy.ptr)
 {
 }
 
-template<typename T> BlockCirclebuf<T>::BCPtr::~BCPtr()
+template<typename T> BlockCirclebuf<T>::BCPtr::~BCPtr() noexcept
 {
 	if (prev)
 		prev->next = next;
@@ -312,7 +331,7 @@ template<typename T> BlockCirclebuf<T>::BCPtr::~BCPtr()
 
 template<typename T>
 typename BlockCirclebuf<T>::BCPtr &
-BlockCirclebuf<T>::BCPtr::operator=(const BCPtr &other)
+BlockCirclebuf<T>::BCPtr::operator=(const BCPtr &other) noexcept
 {
 	if (other.block != this->block) {
 		if (prev)
@@ -336,18 +355,19 @@ BlockCirclebuf<T>::BCPtr::operator=(const BCPtr &other)
 }
 
 template<typename T>
-typename BlockCirclebuf<T>::Block *BlockCirclebuf<T>::BCPtr::getBlock()
+typename BlockCirclebuf<T>::Block *
+BlockCirclebuf<T>::BCPtr::getBlock() const noexcept
 {
 	return this->block;
 }
 
-template<typename T> T *BlockCirclebuf<T>::BCPtr::getPtr()
+template<typename T> T *BlockCirclebuf<T>::BCPtr::getPtr() const noexcept
 {
 	return this->ptr;
 }
 
 template<typename T>
-void BlockCirclebuf<T>::BCPtr::move(Block *newBlock, T *newPos)
+void BlockCirclebuf<T>::BCPtr::move(Block *newBlock, T *newPos) noexcept
 {
 	UNUSED_PARAMETER(newBlock);
 	UNUSED_PARAMETER(newPos);
@@ -355,7 +375,8 @@ void BlockCirclebuf<T>::BCPtr::move(Block *newBlock, T *newPos)
 }
 
 template<typename T>
-BlockCirclebuf<T>::SuperblockAllocation::SuperblockAllocation(T *allocationStart)
+BlockCirclebuf<T>::SuperblockAllocation::SuperblockAllocation(
+	T *const allocationStart) noexcept
 {
 	this->allocationStart = allocationStart;
 }

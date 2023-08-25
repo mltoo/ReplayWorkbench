@@ -22,7 +22,7 @@ public:
 	 * despite splitting blocks, etc.
 	 */
 	struct SuperblockAllocation {
-		T *allocationStart;
+		T *const allocationStart;
 
 		/**
 		 * Initialised a superblock around an allocated section of
@@ -31,7 +31,7 @@ public:
 		 * @param allocationStart The start of the allocated section of
 		 *	memory.
 		 */
-		SuperblockAllocation(T *allocationStart);
+		SuperblockAllocation(T *const allocationStart) noexcept;
 	};
 
 	/**
@@ -55,19 +55,19 @@ public:
 		 * @param ptr The position within the block this `BCPtr` points
 		 *	to
 		 */
-		BCPtr(Block *block, T *ptr);
+		BCPtr(Block *block, T *ptr) noexcept;
 
 		/**
 		 * Create a `BCPtr`, copying from another `BCPtr`
 		 *
 		 * @param copy The `BCPtr` to copy from
 		 */
-		BCPtr(BCPtr &copy);
+		BCPtr(const BCPtr &copy) noexcept;
 
 		/**
 		 * Destroy a `BCPtr` and remove it from its linked list
 		 */
-		~BCPtr();
+		~BCPtr() noexcept;
 
 		/**
 		 * Copy one `BCPtr` into another, keeping linked lists up-to-
@@ -75,22 +75,35 @@ public:
 		 *
 		 * @param other The `BCPtr` to copy from
 		 */
-		BCPtr &operator=(const BCPtr &other);
+		BCPtr &operator=(const BCPtr &other) noexcept;
 
 		/**
 		 * Get the block the `BCPtr` is within
 		 *
 		 * @return The block the `BCPtr` is within
 		 */
-		Block *getBlock();
-		T *getPtr();
+		Block *getBlock() const noexcept;
 
-		void move(Block *newBlock, T *newPos);
+		/**
+		 * Return the point within a block this `BCPtr` points to
+		 *
+		 * @return The specific pointer this `BCPtr` points to
+		 */
+		T *getPtr() const noexcept;
+
+		/**
+		 * Move this BCPtr to a new location
+		 *
+		 * @param newBlock The block this `BCPtr` should now point to
+		 * @param newPoint The pointer to the specific element this
+		 *	`BCPtr` should now point to
+		 */
+		void move(Block *newBlock, T *newPos) noexcept;
 	};
 
 	class Block {
 	private:
-		SuperblockAllocation *parentSuperblock;
+		const SuperblockAllocation *const parentSuperblock;
 		T *blockStart;
 		size_t blockLength;
 		Block *next;
@@ -114,8 +127,8 @@ public:
 		 *	`T` objects it can contain
 		 * @param next The block which should follow the new block
 		 */
-		Block(SuperblockAllocation *parentSuperblock, T *blockStart,
-		      size_t blockLength, Block *next);
+		Block(const SuperblockAllocation *const parentSuperblock,
+		      T *blockStart, size_t blockLength, Block *next) noexcept;
 
 		/**
 		 * Split the block in two at a certain point. The new block
@@ -133,7 +146,7 @@ public:
 		 * @param splitPoint The point at which the block should be
 		 *	split
 		 */
-		void split(BCPtr &splitPoint);
+		void split(const BCPtr &splitPoint);
 
 		/**
 		 * Get the length of the block's memory region, as a number of 
@@ -142,29 +155,29 @@ public:
 		 * @return The length of the block's memory region, as a number
 		 *	of `T` objects.
 		 */
-		size_t getLength();
+		size_t getLength() const noexcept;
 
 		/**
 		 * Get a pointer to the start of the block in memory.
 		 *
 		 * @return Pointer to the start of the block in memory.
 		 */
-		T *getStartPtr();
+		T *getStartPtr() const noexcept;
 
 		/**
 		 * Get the current block's next block.
 		 *
 		 * @return The current block's next block.
 		 */
-		Block *getNext();
+		Block *getNext() const noexcept;
 
 		/**
 		 * Get the block previous to the current block.
 		 *
 		 * @return The previous block to the current block
 		 */
-		Block *getPrev();
-		
+		Block *getPrev() const noexcept;
+
 		/**
 		 * Get the block which 'logically' follows this one at present,
 		 * that is, the block which follows this one in the current
@@ -174,7 +187,7 @@ public:
 		 *
 		 * @return The 'logical' next block (see above)
 		 */
-		const Block *getLogicalNext();
+		Block *getLogicalNext() const noexcept;
 
 		/**
 		 * Attempt to merge a block with the next block. Intended
@@ -202,14 +215,14 @@ public:
 		 *
 		 * @return The 'tail direction' boolean. (see above)
 		 */
-		const bool& getTailDirection() const;
-		
+		bool getTailDirection() const noexcept;
+
 		/**
 		 * Flip the value of the 'tail direction' boolean, which decides
 		 * whether the tail should follow the 'logical' or 'canonical'
 		 * next block pointer (see docs for `getTailDirection()`).
 		 */
-		void flipTailDirection();
+		void flipTailDirection() noexcept;
 
 		/**
 		 * Get whether or not the tail has passed this block yet. When
@@ -224,15 +237,15 @@ public:
 		 *
 		 * @return Whether the tail has passed the current block yet
 		 */
-		const bool& getTailPassedYet() const;
-		
+		bool getTailPassedYet() const noexcept;
+
 		/**
 		 * Sets whether the tail has passed the block yet or not (see
 		 * docs for `getTailPassedYet`)
 		 *
 		 * @param tailPassedYet The new value (see above)
 		 */
-		void setTailPassedYet(const bool tailPassedYet);
+		void setTailPassedYet(const bool tailPassedYet) noexcept;
 
 	private:
 		/**
@@ -245,8 +258,8 @@ public:
 		 * @param blockLength The number of `T` objects the block 
 		 *	will contain
 		 */
-		Block(SuperblockAllocation *parentSuperblock, T *blockStart,
-		      size_t blockLength);
+		Block(const SuperblockAllocation *const parentSuperblock,
+		      T *blockStart, size_t blockLength) noexcept;
 	};
 
 private:
@@ -261,7 +274,7 @@ private:
 	 * @param size The size of the new superblock
 	 * @return The first block of the new superblock
 	 */
-	Block *allocateSuperblock(size_t size);
+	Block *allocateSuperblock(const size_t size);
 
 	/**
 	 * Advances the tail pointer to the start of the next block
@@ -321,7 +334,7 @@ public:
 	 * @param next The block to appear after the first block of the new 
 	 *	superblock
 	 */
-	void allocateSuperblock(size_t size, Block *prev, Block *next);
+	void allocateSuperblock(const size_t size, Block *prev, Block *next);
 
 	/**
 	 * Write objects from a buffer into the circlebuf. Written data may
@@ -348,7 +361,7 @@ public:
 	 * @param b The second `BCPtr`
 	 * @return The distance between the two `BCPtrs`
 	 */
-	size_t ptrDifference(BCPtr &a, BCPtr &b);
+	size_t ptrDifference(const BCPtr &a, const BCPtr &b) const noexcept;
 
 	/**
 	 * Get the amount of data in the circlebuf (i.e. distance between head
@@ -356,7 +369,7 @@ public:
 	 *
 	 * @return The amount of data in the circlebuf
 	 */
-	size_t bufferHealth();
+	size_t bufferHealth() const noexcept;
 };
 }
 
