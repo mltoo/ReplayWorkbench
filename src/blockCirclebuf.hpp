@@ -164,6 +164,17 @@ public:
 		 * @return The previous block to the current block
 		 */
 		Block *getPrev();
+		
+		/**
+		 * Get the block which 'logically' follows this one at present,
+		 * that is, the block which follows this one in the current
+		 * 'active' BlockCirclebuf (i.e. skipping blocks being excluded
+		 * temporarily from the active buffer, for example when sections
+		 * of the buffer need to be preserved).
+		 *
+		 * @return The 'logical' next block (see above)
+		 */
+		const Block *getLogicalNext();
 
 		/**
 		 * Attempt to merge a block with the next block. Intended
@@ -180,6 +191,48 @@ public:
 		 * @return Whether or not the merge was able to be completed
 		 */
 		bool attemptReconcileNext();
+
+		/**
+		 * Returns a value which decides which 'next block' pointer the
+		 * tail `BCPtr` should follow out of this block. If true, the
+		 * tail should follow the 'canonical next' pointer (via 
+		 * `getNext()`) then flip the tail direction value on the block
+		 * it is leaving (via `flipTailDirection()`). If false it should
+		 * always follow the 'logical next'.
+		 *
+		 * @return The 'tail direction' boolean. (see above)
+		 */
+		const bool& getTailDirection() const;
+		
+		/**
+		 * Flip the value of the 'tail direction' boolean, which decides
+		 * whether the tail should follow the 'logical' or 'canonical'
+		 * next block pointer (see docs for `getTailDirection()`).
+		 */
+		void flipTailDirection();
+
+		/**
+		 * Get whether or not the tail has passed this block yet. When
+		 * a section has been excluded from the 'active' buffer, the
+		 * tail must scan that excluded section once, following the old
+		 * continuuity of the buffer, before it re-enters the active
+		 * buffer section. The head has to allow the tail to re-enter
+		 * the active buffer before the head can proceed past the point
+		 * at which the 'seam' at which the excluded section split away.
+		 * This variable ensures any block the head enters meets that
+		 * requirement
+		 *
+		 * @return Whether the tail has passed the current block yet
+		 */
+		const bool& getTailPassedYet() const;
+		
+		/**
+		 * Sets whether the tail has passed the block yet or not (see
+		 * docs for `getTailPassedYet`)
+		 *
+		 * @param tailPassedYet The new value (see above)
+		 */
+		void setTailPassedYet(const bool tailPassedYet);
 
 	private:
 		/**

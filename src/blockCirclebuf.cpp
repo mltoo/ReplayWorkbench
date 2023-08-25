@@ -89,7 +89,7 @@ template<typename T> void BlockCirclebuf<T>::Block::split(T *splitPoint)
 	void *newBlockSpace = bmalloc(sizeof(Block));
 	Block *newBlock = new (newBlockSpace)
 		Block(parentSuperblock, splitPoint,
-		      blockLength - (splitPoint - blockStart), this, 
+		      blockLength - (splitPoint - blockStart), this,
 		      this->next);
 	blockLength = blockLength - newBlock->blockLength;
 	next->prev = newBlock;
@@ -257,6 +257,29 @@ template<typename T> bool BlockCirclebuf<T>::Block::attemptReconcilePrev()
 	return true;
 }
 
+template<typename T>
+const bool &BlockCirclebuf<T>::Block::getTailDirection() const
+{
+	return tailDirection;
+}
+
+template<typename T> void BlockCirclebuf<T>::Block::flipTailDirection()
+{
+	tailDirection = !tailDirection;
+}
+
+template<typename T>
+const bool &BlockCirclebuf<T>::Block::getTailPassedYet() const
+{
+	return tailPassedYet;
+}
+
+template<typename T>
+void BlockCirclebuf<T>::Block::setTailPassedYet(const bool tailPassedYet)
+{
+	this->tailPassedYet = tailPassedYet;
+}
+
 template<typename T> BlockCirclebuf<T>::BCPtr::BCPtr(Block *block, T *ptr)
 {
 	if (ptr < block->getStartPtr() ||
@@ -348,38 +371,40 @@ template<typename T> void BlockCirclebuf<T>::advanceHead(size_t size)
 
 template<typename T> void BlockCirclebuf<T>::advanceTail(size_t size)
 {
-	//TODO: not undefined behaviour
-	tail.ptr += size;
-	if (tail.ptr >= tail.block->getStartPtr() + tail.block->getLength()) {
-		/*do {
-			tail.block = tail.block->getNext();
-			tail.ptr = tail.block->getStartPtr();
-		} while (tail.block->readProtect);*/
-	}
-	/*
-	size_t advanceRequired = 0;
-	size_t reservedSpace = ptrDifference(head, tail);
-	Block *block = tail.getBlock();
-	size_t spaceInBlock =
-		(block->getStartPtr() + block->getLength()) -
-		tail.getPtr();
-	if (spaceInBlock < n - reservedSpace) {
-		advanceRequired += spaceInBlock;
-		reservedSpace += spaceInBlock;
-		block = block->getNext();
-		while(reservedSpace < n) {
-			if (block->getLength() <= n-reservedSpace) {
-				reservedSpace += block->getLength();
-				advanceRequired += block->getLength();
-				block = block->getNext();
+	size_t spaceInCurrentBlock;
+	while (size > 0) {
+		Block *currentBlock = tail.getBlock();
+		spaceInCurrentBlock = (currentBlock->getStartPtr() +
+				       currentBlock->getLength()) -
+				      tail.getPtr();
+		if (spaceInCurrentBlock < size) {
+			if (head.getBlock() == currentBlock) {
+				advanceHead((currentBlock->getStartPtr() +
+					     currentBlock->getLength()) -
+					    head->getPtr() + 1);
+			}
+			size -= spaceInCurrentBlock;
+			if (currentBlock->getTailDirection()) {
+				currentBlock->flipTailDirection();
+				currentBlock = currentBlock->getNext();
 			} else {
+				currentBlock = currentBlock->getLogicalNext();
+			}
+			currentBlock->setTailPassedYet(true);
+		} else {
+			T *targetPtr;
+			if (tail.getBlock() == currentBlock)
+				targetPtr = tail.getPtr() + size;
+			else
+				targetPtr = currentBlock->getStartPtr() + size;
 
+			if (head.getBlock() == currentBlock &&
+			    head->getPtr() < targetPtr)
+				advanceHead(targetPtr - head->getPtr() + 1);
+
+			tail.move(currentBlock, targetPtr);
 		}
-	} else {
-		advanceRequired += n-reservedSpace;
-		reservedSpace = n;
 	}
-	*/
 }
 
 template<typename T> void BlockCirclebuf<T>::advanceTailToNextBlock()
