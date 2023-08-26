@@ -97,6 +97,8 @@ template<typename T> void BlockCirclebuf<T>::Block::split(T *splitPoint)
 			"Tried to split a BlockCirclebuf block at an out-of-range splitPoint");
 
 	void *newBlockSpace = bmalloc(sizeof(Block));
+	if (!newBlockSpace) 
+		throw std::bad_alloc();
 	Block *newBlock = new (newBlockSpace)
 		Block(parentSuperblock, splitPoint,
 		      blockLength - (splitPoint - blockStart), this,
