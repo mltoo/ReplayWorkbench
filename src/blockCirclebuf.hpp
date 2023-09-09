@@ -109,7 +109,6 @@ public:
 		Block *next;
 		Block *prev;
 		Block *logicalNext;
-		bool tailDirection;
 		bool tailPassedYet;
 		bool willReconcilePrev;
 		bool willReconcileNext;
@@ -127,7 +126,8 @@ public:
 		 *	`T` objects it can contain
 		 * @param next The block which should follow the new block
 		 */
-		Block(const SuperblockAllocation *const parentSuperblock,
+		Block(const BlockCirclebuf<T> &parentContainer,
+		      const SuperblockAllocation *const parentSuperblock,
 		      T *blockStart, size_t blockLength, Block *next) noexcept;
 
 		/**
@@ -206,25 +206,6 @@ public:
 		bool attemptReconcileNext();
 
 		/**
-		 * Returns a value which decides which 'next block' pointer the
-		 * tail `BCPtr` should follow out of this block. If true, the
-		 * tail should follow the 'canonical next' pointer (via 
-		 * `getNext()`) then flip the tail direction value on the block
-		 * it is leaving (via `flipTailDirection()`). If false it should
-		 * always follow the 'logical next'.
-		 *
-		 * @return The 'tail direction' boolean. (see above)
-		 */
-		bool getTailDirection() const noexcept;
-
-		/**
-		 * Flip the value of the 'tail direction' boolean, which decides
-		 * whether the tail should follow the 'logical' or 'canonical'
-		 * next block pointer (see docs for `getTailDirection()`).
-		 */
-		void flipTailDirection() noexcept;
-
-		/**
 		 * Get whether or not the tail has passed this block yet. When
 		 * a section has been excluded from the 'active' buffer, the
 		 * tail must scan that excluded section once, following the old
@@ -258,7 +239,7 @@ public:
 		 * @param blockLength The number of `T` objects the block 
 		 *	will contain
 		 */
-		Block(const SuperblockAllocation *const parentSuperblock,
+		Block(const BlockCirclebuf& parentContainer, const SuperblockAllocation *const parentSuperblock,
 		      T *blockStart, size_t blockLength) noexcept;
 	};
 

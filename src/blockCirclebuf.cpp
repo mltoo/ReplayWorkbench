@@ -44,6 +44,7 @@ void BlockCirclebuf<T>::allocateSuperblock(const size_t size, Block *prev,
 
 template<typename T>
 BlockCirclebuf<T>::Block::Block(
+	const BlockCirclebuf<T> &parentContainer,
 	const SuperblockAllocation *const parentSuperblock, T *blockStart,
 	size_t blockLength, BlockCirclebuf<T>::Block *next) noexcept
 {
@@ -51,41 +52,57 @@ BlockCirclebuf<T>::Block::Block(
 	this->blockStart = blockStart;
 	this->blockLength = blockLength;
 	this->tailPassedYet = true;
-	this->tailDirection = false;
-	if (next != this) {
-		this->next = next;
+
+	this->next = next;
+	if (this == next)
+		this->prev = next;
+	else
 		this->prev = next->prev;
-		next->prev = this;
-		if (next == this->prev->logicalNext) {
-			this->logicalNext = this->prev->logicalNext;
-			this->prev->logicalNext = this;
-		} else {
-			this->logicalNext = this->prev->logicalNext;
-			this->prev->logicalNext = this;
-			this->tailDirection = this->prev->tailDirection;
-			this->prev->tailDirection = false;
-		}
-		this->tailPassedYet = next->tailPassedYet;
+	next->prev = this;
+	this->logicalNext = next;
+	this->prev->next = this;
+	if (this->prev->logicalNext == next)
+		this->prev->logicalNext = this;
 
-		this->prev->next = this;
-
-	} else {
-		this->next = this;
-		this->prev = this;
-		this->logicalNext = this;
+	if (this == next)
 		this->tailPassedYet = true;
-		this->tailDirection = false;
+	this->tailPassedYet = next->tailPassedYet;
+	const BCPtr &head = parentContainer.head;
+	const BCPtr &tail = parentContainer.tail;
+
+	/*
+	 * Dealing with inserting block with next as start of excluded section
+	 * Ideally should never happen; 'correct' behaviour is not necessarily
+	 * obvious here, this should hopefully be valid in all situations
+	 */
+	if (this->prev->logicalNext != this) {
+		if (head.getBlock() != next) {
+			this->tailPassedYet = next->tailPassedYet;
+			next->tailPassedYet = true;
+		} else {
+			if (tail.getBlock() != head.getBlock() || tail.getPtr() > head.getPtr()) {
+				this->tailPassedYet = false;
+				next->tailPassedYet = false;
+			} else  {
+				this->tailPassedYet = next->tailPassedYet;
+				next->tailPassedYet = true;
+			}
+		}
 	}
-	this->willReconcileNext = false;
+
+	this->willReconcileNext = next->prev->willReconcileNext;
+	next->prev->willReconcileNext = false;
 	this->willReconcilePrev = false;
 	referencingPtrs = NULL;
 }
 
 template<typename T>
 BlockCirclebuf<T>::Block::Block(
+	const BlockCirclebuf<T> &parentContainer,
 	const SuperblockAllocation *const parentSuperblock, T *blockStart,
 	size_t blockLength) noexcept
-	: Block(parentSuperblock, blockStart, blockLength, this)
+	: Block(parentContainer, parentSuperblock, blockStart, blockLength,
+		this)
 {
 }
 
@@ -97,7 +114,7 @@ template<typename T> void BlockCirclebuf<T>::Block::split(T *splitPoint)
 			"Tried to split a BlockCirclebuf block at an out-of-range splitPoint");
 
 	void *newBlockSpace = bmalloc(sizeof(Block));
-	if (!newBlockSpace) 
+	if (!newBlockSpace)
 		throw std::bad_alloc();
 	Block *newBlock = new (newBlockSpace)
 		Block(parentSuperblock, splitPoint,
@@ -158,7 +175,8 @@ template<typename T> BlockCirclebuf<T>::BlockCirclebuf(size_t size)
 }
 
 template<typename T>
-size_t BlockCirclebuf<T>::ptrDifference(const BCPtr &a, const BCPtr &b) const noexcept
+size_t BlockCirclebuf<T>::ptrDifference(const BCPtr &a,
+					const BCPtr &b) const noexcept
 {
 	size_t accumulator = 0;
 	BCPtr currentPosn(a);
@@ -275,22 +293,6 @@ template<typename T> bool BlockCirclebuf<T>::Block::attemptReconcilePrev()
 	return true;
 }
 
-template<typename T>
-bool BlockCirclebuf<T>::Block::getTailDirection() const noexcept
-{
-	return tailDirection;
-}
-
-template<typename T> void BlockCirclebuf<T>::Block::flipTailDirection() noexcept
-{
-	tailDirection = !tailDirection;
-}
-
-template<typename T>
-bool BlockCirclebuf<T>::Block::getTailPassedYet() const noexcept
-{
-	return tailPassedYet;
-}
 
 template<typename T>
 void BlockCirclebuf<T>::Block::setTailPassedYet(
