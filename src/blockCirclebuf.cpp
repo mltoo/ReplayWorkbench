@@ -376,13 +376,28 @@ template<typename T> T *BlockCirclebuf<T>::BCPtr::getPtr() const noexcept
 }
 
 template<typename T>
-void BlockCirclebuf<T>::BCPtr::move(Block *newBlock, T *newPos) noexcept
+void BlockCirclebuf<T>::BCPtr::move(Block *newBlock, T *newPos) noexcept(NDEBUG)
 {
-	throw std::logic_error("TODO: not implemented");
-	UNUSED_PARAMETER(newBlock);
-	UNUSED_PARAMETER(newPos);
-	//TODO
+	assert(newPos >= newBlock->getStartPtr());
+	assert(newPos < newBlock->getStartPtr() + newBlock->getLength());
+	if (this->prev == nullptr) {
+		this->getBlock()->referencingPtrs = this->next;
+	} else {
+		this->prev->next = this->next;
+	}
+	if (this->next != nullptr) {
+		this->next->prev = this->prev;
+	}
+
+	this->prev = nullptr;
+	this->next = newBlock->referencingPtrs;
+	if (this->next != nullptr) {
+		this->next->prev = this;
+	}
+	newBlock->referencingPtrs = this;
+	this->ptr = newPos;
 }
+
 
 template<typename T>
 BlockCirclebuf<T>::SuperblockAllocation::SuperblockAllocation(
@@ -390,7 +405,6 @@ BlockCirclebuf<T>::SuperblockAllocation::SuperblockAllocation(
 {
 	this->allocationStart = allocationStart;
 }
-
 
 template<typename T>
 size_t BlockCirclebuf<T>::read(T *buffer, const size_t count) const noexcept
@@ -461,6 +475,5 @@ template<typename T> void BlockCirclebuf<T>::advanceHeadToNextBlock()
 	nextBlock->setTailPassedYet(false);
 	head.move(nextBlock, nextBlock->getStartPtr());
 }
-
 
 }

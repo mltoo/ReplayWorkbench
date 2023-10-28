@@ -98,10 +98,11 @@ public:
 		 * @param newPoint The pointer to the specific element this
 		 *	`BCPtr` should now point to
 		 */
-		void move(Block *newBlock, T *newPos) noexcept;
+		void move(Block *newBlock, T *newPos) noexcept(NDEBUG);
 	};
 
 	class Block {
+		friend class BCPtr;
 	private:
 		const SuperblockAllocation *const parentSuperblock;
 		T *blockStart;
