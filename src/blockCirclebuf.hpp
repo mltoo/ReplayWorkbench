@@ -262,41 +262,10 @@ private:
 	 */
 	virtual void advanceTailToNextBlock();
 
-protected:
 	/**
-	 * Move the head pointer onwards.
-	 *
-	 * @param jump The number of `T` objects by which the head should be 
-	 *	advanced
+	 * Advances the head pointer to the start of the next block
 	 */
-	virtual void advanceHead(size_t jump);
-
-	/**
-	 * Move the tail pointer onwards.
-	 *
-	 * @param jump The max number of `T` objects by which the tail should 
-	 *	be advanced
-	 */
-	virtual void advanceTail(size_t jump);
-
-	/**
-	 * Moves the `tail` pointer onwards sufficiently to allow the head to 
-	 * advance by `n` non-contiguous bytes.
-	 * 
-	 * @param n The number of bytes to be reserved between the head and
-	 *	tail pointers
-	 */
-	virtual void reserveNonContiguous(size_t n);
-
-	/**
-	 * Moves the `tail` pointer onwards sufficiently to allow the head to
-	 * advance over a section containing a minimum of `n` contiguous bytes.
-	 *
-	 * @param n The number of contiguous bytes to be reserved between the
-	 *	head and tail pointers
-	 * @return The start of the reserved contiguous block
-	 */
-	virtual BCPtr reserveContiguous(size_t n);
+	virtual void advanceHeadToNextBlock();
 
 public:
 	/**
@@ -315,7 +284,7 @@ public:
 	 * @param next The block to appear after the first block of the new 
 	 *	superblock
 	 */
-	void allocateSuperblock(const size_t size, Block *prev, Block *next);
+	void allocateSuperblock(size_t size, Block *prev, Block *next);
 
 	/**
 	 * Write objects from a buffer into the circlebuf. Written data may
@@ -324,7 +293,7 @@ public:
 	 * @param input The input buffer
 	 * @param count The number of `T` objects to be read
 	 */
-	virtual void write(T *input, size_t count);
+	virtual void write(const T * input, size_t count) const noexcept;
 
 	/**
 	 * Read objects from the circlebuf into a buffer.
@@ -333,7 +302,7 @@ public:
 	 * @param count The number of `T` objects to read
 	 * @return The number of `T` objects successfully read
 	 */
-	virtual size_t read(T *buffer, size_t count);
+	virtual size_t read(T *buffer, size_t count) const noexcept;
 
 	/**
 	 * Get the distance between two `BCPtrs`, from `a` to `b`

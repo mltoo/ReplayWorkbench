@@ -1,4 +1,5 @@
 #include "blockCirclebuf.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -6,6 +7,7 @@
 #include <util/bmem.h>
 #include <util/c99defs.h>
 #include <new>
+#include <assert.h>
 
 namespace ReplayWorkbench {
 
@@ -80,10 +82,11 @@ BlockCirclebuf<T>::Block::Block(
 			this->tailPassedYet = next->tailPassedYet;
 			next->tailPassedYet = true;
 		} else {
-			if (tail.getBlock() != head.getBlock() || tail.getPtr() > head.getPtr()) {
+			if (tail.getBlock() != head.getBlock() ||
+			    tail.getPtr() > head.getPtr()) {
 				this->tailPassedYet = false;
 				next->tailPassedYet = false;
-			} else  {
+			} else {
 				this->tailPassedYet = next->tailPassedYet;
 				next->tailPassedYet = true;
 			}
@@ -93,7 +96,7 @@ BlockCirclebuf<T>::Block::Block(
 	this->willReconcileNext = next->prev->willReconcileNext;
 	next->prev->willReconcileNext = false;
 	this->willReconcilePrev = false;
-	referencingPtrs = NULL;
+	referencingPtrs = nullptr;
 }
 
 template<typename T>
@@ -154,7 +157,7 @@ template<typename T> void BlockCirclebuf<T>::Block::split(T *splitPoint)
 		currentBCPtr = nextBCPtr;
 	}
 	if (newBlock->referencingPtrs)
-		newBlock->referencingPtrs->prev = NULL;
+		newBlock->referencingPtrs->prev = nullptr;
 }
 
 template<typename T>
@@ -223,27 +226,30 @@ BlockCirclebuf<T>::Block::getPrev() const noexcept
 	return prev;
 }
 
-template<typename T> void BlockCirclebuf<T>::write(T *input, size_t count)
+template<typename T>
+void BlockCirclebuf<T>::write(const T *const input,
+			      const size_t count) const noexcept
 {
+	assert(input != nullptr);
 	size_t numRead = 0;
 	while (numRead < count) {
-		//Get available space in current block
-		size_t numInCurrentBlock = std::min(
-			count - numRead,
-			head.block->getLength() -
-				(head.ptr - head.block->getStartPtr()));
-
-		//Handle cases where we overwrite the tail (advance tail past
-		//it)
-		if (tail.block == head.block && tail.ptr > head.ptr &&
-		    tail.ptr <= head.ptr + numInCurrentBlock)
-			advanceTail((head.ptr + numInCurrentBlock) - tail.ptr);
-
-		memcpy(head.ptr, input + numRead,
-		       numInCurrentBlock * sizeof(T));
-		numRead += numInCurrentBlock;
-		head.ptr += numInCurrentBlock;
-		advanceHead(numInCurrentBlock);
+		size_t numToRead = count - numRead;
+		if (tail.getBlock() == head.getBlock() &&
+		    tail.getPtr() - head.getPtr() < numToRead) {
+			this->advanceTailToNextBlock();
+		}
+		size_t spaceLeftInBlock = head.getBlock()->getStartPtr() +
+					  head.getBlock()->getLength() -
+					  head.getPtr();
+		if (numToRead < spaceLeftInBlock) {
+			memcpy(input, head.getPtr(), numToRead);
+			head.move(head.getBlock(), head.getPtr() + numToRead);
+			return;
+		} else {
+			memcpy(input, head.getPtr(), spaceLeftInBlock);
+			numRead += spaceLeftInBlock;
+			this->advanceHeadToNextBlock();
+		}
 	}
 }
 
@@ -286,13 +292,12 @@ template<typename T> bool BlockCirclebuf<T>::Block::attemptReconcilePrev()
 	}
 
 	if (prev->referencingPtrs)
-		prev->referencingPtrs->prev = NULL;
+		prev->referencingPtrs->prev = nullptr;
 
 	this->~Block();
 	bfree(this);
 	return true;
 }
-
 
 template<typename T>
 void BlockCirclebuf<T>::Block::setTailPassedYet(
@@ -311,7 +316,7 @@ BlockCirclebuf<T>::BCPtr::BCPtr(Block *block, T *ptr) noexcept
 
 	this->block = block;
 	this->ptr = ptr;
-	this->prev = NULL;
+	this->prev = nullptr;
 	this->next = block->referencingPtrs;
 	block->referencingPtrs->prev = this;
 	block->referencingPtrs = this;
@@ -345,7 +350,7 @@ BlockCirclebuf<T>::BCPtr::operator=(const BCPtr &other) noexcept
 		if (block->referencingPtrs == this)
 			block->referencingPtrs = next;
 
-		this->prev = NULL;
+		this->prev = nullptr;
 		this->next = block->referencingPtrs;
 		if (other.block->referencingPtrs)
 			other.block->referencingPtrs->prev = this;
@@ -373,6 +378,7 @@ template<typename T> T *BlockCirclebuf<T>::BCPtr::getPtr() const noexcept
 template<typename T>
 void BlockCirclebuf<T>::BCPtr::move(Block *newBlock, T *newPos) noexcept
 {
+	throw std::logic_error("TODO: not implemented");
 	UNUSED_PARAMETER(newBlock);
 	UNUSED_PARAMETER(newPos);
 	//TODO
@@ -385,104 +391,76 @@ BlockCirclebuf<T>::SuperblockAllocation::SuperblockAllocation(
 	this->allocationStart = allocationStart;
 }
 
-template<typename T> void BlockCirclebuf<T>::advanceHead(size_t size)
-{
 
-	//TODO
-	if (!bufferHealth() > size) {
-		advanceTail(size);
-	}
-}
-
-template<typename T> void BlockCirclebuf<T>::advanceTail(size_t size)
+template<typename T>
+size_t BlockCirclebuf<T>::read(T *buffer, const size_t count) const noexcept
 {
-	size_t spaceInCurrentBlock;
-	while (size > 0) {
-		Block *currentBlock = tail.getBlock();
-		spaceInCurrentBlock = (currentBlock->getStartPtr() +
-				       currentBlock->getLength()) -
-				      tail.getPtr();
-		if (spaceInCurrentBlock < size) {
-			if (head.getBlock() == currentBlock) {
-				advanceHead((currentBlock->getStartPtr() +
-					     currentBlock->getLength()) -
-					    head->getPtr() + 1);
-			}
-			size -= spaceInCurrentBlock;
-			if (currentBlock->getTailDirection()) {
-				currentBlock->flipTailDirection();
-				currentBlock = currentBlock->getNext();
+	auto memcpyIfNotNull = [](T *src, T *target, size_t count) {
+		if (target != nullptr) {
+			memcpy(src, target, count);
+		}
+	};
+	size_t numRead = 0;
+	while (numRead < count) {
+		size_t numToRead = count - numRead;
+		if (head.getBlock() == tail.getBlock()) {
+			if (head.getPtr() - tail.getPtr() < numToRead) {
+				memcpyIfNotNull(tail.getPtr(), buffer + numRead,
+						head.getPtr() - tail.getPtr());
+				numRead += head.getPtr() - tail.getPtr();
+				tail.move(tail.getBlock(), head.getPtr());
+				return numRead;
 			} else {
-				currentBlock = currentBlock->getLogicalNext();
+				memcpyIfNotNull(tail.getPtr(), buffer + numRead,
+						numToRead);
+				tail.move(tail.getBlock(),
+					  tail.getPtr() + numToRead);
+				return count;
 			}
-			currentBlock->setTailPassedYet(true);
+		}
+		size_t spaceLeftInBlock = tail.getBlock().getStartPtr() +
+					  tail.getBlock().getLength() -
+					  tail.getPtr();
+		if (numToRead < spaceLeftInBlock) {
+			memcpyIfNotNull(tail.getPtr(), buffer + numRead,
+					numToRead);
+			tail.move(tail.getBlock(), tail.getPtr() + numToRead);
+			return count;
 		} else {
-			T *targetPtr;
-			if (tail.getBlock() == currentBlock)
-				targetPtr = tail.getPtr() + size;
-			else
-				targetPtr = currentBlock->getStartPtr() + size;
-
-			if (head.getBlock() == currentBlock &&
-			    head->getPtr() < targetPtr)
-				advanceHead(targetPtr - head->getPtr() + 1);
-
-			tail.move(currentBlock, targetPtr);
+			memcpyIfNotNull(tail.getPtr(), buffer + numRead,
+					spaceLeftInBlock);
+			this->advanceTailToNextBlock();
 		}
 	}
+	return numRead;
 }
 
 template<typename T> void BlockCirclebuf<T>::advanceTailToNextBlock()
 {
-	advanceTail((tail->getBlock() + tail.getBlock()->getLength()) -
-		    tail->getPtr());
-}
-
-template<typename T> void BlockCirclebuf<T>::reserveNonContiguous(size_t n)
-{
-	size_t alreadyReserved = ptrDifference(head, tail);
-	if (alreadyReserved < n)
-		advanceTail(n - alreadyReserved);
-}
-
-template<typename T>
-typename BlockCirclebuf<T>::BCPtr BlockCirclebuf<T>::reserveContiguous(size_t n)
-{
-	Block *block = head->getBlock();
-	if ((block->getStartPtr() + block->getLength()) - head->getPtr() >= n) {
-		if (tail->getBlock() == head->getBlock()) {
-			size_t alreadyReserved = ptrDifference(head, tail);
-			if (alreadyReserved < n)
-				advanceTail(ptrDifference(head, tail) - n);
-		}
-		return head;
+	Block *nextBlock;
+	if (tail.getBlock()->getLogicalNext()->getPrev() == tail.getBlock()) {
+		nextBlock = tail.getBlock()->getLogicalNext();
 	} else {
-		if (tail->getBlock() == block &&
-		    tail->getPtr() > head->getPtr())
-			advanceTailToNextBlock();
-
-		block = block->getNext();
-		while ((block->getLength() < n) && block != head->getBlock()) {
-			if (tail->getBlock() == block)
-				advanceTailToNextBlock();
-			block = block->getNext();
-		}
-		if (block == head->getBlock()) {
-			if (block->getLength() >= n) {
-				advanceTail(ptrDifference(tail, head));
-			} else {
-				throw std::runtime_error(
-					"contiguous write too large for any "
-					"block in BlockCirclebuf");
-			}
-		} else {
-			if (tail->getBlock() == block) {
-				size_t alreadyReserved =
-					tail.getPtr() - block->getStartPtr();
-				advanceTail(n - alreadyReserved);
-			}
-		}
-		return BCPtr(block, block->getStartPtr());
+		nextBlock = tail.getBlock()->getNext();
 	}
+	nextBlock->setTailPassedYet(true);
 }
+
+template<typename T> void BlockCirclebuf<T>::advanceHeadToNextBlock()
+{
+	Block *nextBlock;
+	if (!head.getBlock()->getNext()->getTailPassedYet()) {
+		nextBlock = head.getBlock()->getNext();
+	} else {
+		nextBlock = head.getBlock()->getLogicalNext();
+		nextBlock->prev = head.getBlock();
+		while (!nextBlock->getTailPassedYet()) {
+			advanceTailToNextBlock();
+		}
+	}
+	nextBlock->setTailPassedYet(false);
+	head.move(nextBlock, nextBlock->getStartPtr());
+}
+
+
 }
