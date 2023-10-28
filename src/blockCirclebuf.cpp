@@ -109,9 +109,10 @@ BlockCirclebuf<T>::Block::Block(
 {
 }
 
-template<typename T> void BlockCirclebuf<T>::Block::split(T *splitPoint)
+template<typename T>
+void BlockCirclebuf<T>::Block::split(T *splitPoint,
+				     const BlockCirclebuf<T> &circlebuf)
 {
-
 	if (splitPoint < blockStart || splitPoint > blockStart + blockLength)
 		throw std::out_of_range(
 			"Tried to split a BlockCirclebuf block at an out-of-range splitPoint");
@@ -124,13 +125,44 @@ template<typename T> void BlockCirclebuf<T>::Block::split(T *splitPoint)
 		      blockLength - (splitPoint - blockStart), this,
 		      this->next);
 	blockLength = blockLength - newBlock->blockLength;
-	next->prev = newBlock;
+	if (next->prev == this) {
+		next->prev = newBlock;
+	}
+	if (logicalNext->prev == this) {
+		logicalNext->prev = newBlock;
+	}
+	newBlock->prev = this;
 	newBlock->next = this->next;
+	newBlock->logicalNext = this->logicalNext;
+	this->logicalNext = newBlock;
 	this->next = newBlock;
-	next->logicalNext = this->logicalNext;
-	this->logicalNext = next;
-	next->tailDirection = this->tailDirection;
-	next->tailPassedYet = true;
+
+	if (circlebuf.tail.getBlock() == this) {
+		if (circlebuf.head.getBlock() == this) {
+			if (circlebuf.tail.getPtr() >= splitPoint) {
+				if (circlebuf.head.getPtr() >= splitPoint) {
+					newBlock->tailPassedYet =
+						circlebuf.head.getPtr() >=
+						circlebuf.tail.getPtr();
+				} else {
+					newBlock->tailPassedYet = true;
+				}
+			} else {
+				if (circlebuf.head.getPtr() >= splitPoint) {
+					newBlock->tailPassedYet = false;
+				} else {
+					newBlock->tailPassedYet =
+						circlebuf.head.getPtr() >=
+						circlebuf.tail.getPtr();
+				}
+			}
+		} else {
+			newBlock->tailPassedYet = circlebuf.tail.getPtr() <
+						  splitPoint;
+		}
+	} else {
+		newBlock->tailPassedYet = this->tailPassedYet;
+	}
 
 	//update all pointers after the split:
 	BCPtr *currentBCPtr = this->referencingPtrs;
@@ -398,7 +430,6 @@ void BlockCirclebuf<T>::BCPtr::move(Block *newBlock, T *newPos) noexcept(NDEBUG)
 	this->ptr = newPos;
 }
 
-
 template<typename T>
 BlockCirclebuf<T>::SuperblockAllocation::SuperblockAllocation(
 	T *const allocationStart) noexcept
@@ -475,5 +506,4 @@ template<typename T> void BlockCirclebuf<T>::advanceHeadToNextBlock()
 	nextBlock->setTailPassedYet(false);
 	head.move(nextBlock, nextBlock->getStartPtr());
 }
-
 }

@@ -137,8 +137,9 @@ public:
 		 *
 		 * @param splitPoint The point at which the block should be
 		 *	split
+		 * @param circlebuf The BlockCirclebuf containing this block
 		 */
-		void split(T *splitPoint);
+		void split(T *splitPoint, const BlockCirclebuf<T> &circlebuf);
 
 		/**
 		 * Split the block in two at a certain point. The new block
