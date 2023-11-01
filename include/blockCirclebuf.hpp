@@ -47,6 +47,8 @@ public:
 	 * the new block instead
 	 */
 	class BCPtr {
+		friend class Block;
+
 	private:
 		Block *block;
 		T *ptr;
@@ -247,7 +249,6 @@ public:
 		bool willReconcileNext;
 		BCPtr *referencingPtrs;
 
-	public:
 		/**
 		 * Construct a block before an existing block. Preferably
 		 * blocks should only be made before data is written or any
@@ -316,6 +317,25 @@ public:
 			referencingPtrs = nullptr;
 		}
 
+		~Block()
+		{
+			if (prev) {
+				prev->next = next;
+			}
+			if (next) {
+				next->prev = prev;
+			}
+			while (referencingPtrs) {
+				BCPtr *next = referencingPtrs->next;
+				referencingPtrs->next = nullptr;
+				referencingPtrs->prev = nullptr;
+				referencingPtrs->block = nullptr;
+				referencingPtrs->ptr = nullptr;
+				referencingPtrs = next;
+			}
+		}
+
+	public:
 		Block(const Block &other) = delete;
 		Block(const Block &&other) = delete;
 		Block *operator=(const Block &other) = delete;
