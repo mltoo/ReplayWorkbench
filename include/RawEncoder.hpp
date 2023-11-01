@@ -22,7 +22,7 @@ public:
 	RawEncoder();
 
 	void encodeFrame(const void *frameStart, size_t size) override;
-	void encodeAudioPacket(const void *packetStart, size_t) override;
+	void encodeAudioPacket(const void *packetStart, size_t size) override;
 };
 
 }

@@ -1,6 +1,9 @@
 #pragma once
 
+#include <stdexcept>
 #include <vector>
+#include <assert.h>
+#include <string.h>
 
 namespace ReplayWorkbench {
 
@@ -31,7 +34,10 @@ public:
 		 * @param allocationStart The start of the allocated section of
 		 *	memory.
 		 */
-		SuperblockAllocation(T *const allocationStart) noexcept;
+		SuperblockAllocation(T *const allocationStart) noexcept
+			: allocationStart(allocationStart)
+		{
+		}
 	};
 
 	/**
@@ -55,19 +61,67 @@ public:
 		 * @param ptr The position within the block this `BCPtr` points
 		 *	to
 		 */
-		BCPtr(Block *block, T *ptr) noexcept;
+		BCPtr(Block *block, T *ptr)
+		{
+			if (ptr < block->getStartPtr() ||
+			    ptr >= block->getStartPtr() + block->getLength())
+				throw std::out_of_range(
+					"Initialising a BCPtr out of range of the provided block");
+
+			this->block = block;
+			this->ptr = ptr;
+			this->prev = nullptr;
+			this->next = block->referencingPtrs;
+			block->referencingPtrs->prev = this;
+			block->referencingPtrs = this;
+		}
 
 		/**
 		 * Create a `BCPtr`, copying from another `BCPtr`
 		 *
 		 * @param copy The `BCPtr` to copy from
 		 */
-		BCPtr(const BCPtr &copy) noexcept;
+		BCPtr(const BCPtr &copy) noexcept : BCPtr(copy.block, copy.ptr)
+		{
+			this->next = this->block->referencingPtrs;
+			this->prev = nullptr;
+			if (this->block->referencingPtrs) {
+				this->block->referencingPtrs->prev = this;
+			}
+			this->block->referencingPtrs->prev = this;
+		}
+
+		BCPtr(BCPtr &&other) noexcept
+		{
+			this->block = other.block;
+			this->ptr = other.ptr;
+			this->next = other.next;
+			this->prev = other.prev;
+			if (this->next) {
+				this->next->prev = this;
+				other.next = nullptr;
+			}
+			if (this->prev) {
+				this->prev->next = this;
+				other.prev = nullptr;
+			}
+			other.block = nullptr;
+			other.ptr = nullptr;
+		}
 
 		/**
 		 * Destroy a `BCPtr` and remove it from its linked list
 		 */
-		~BCPtr() noexcept;
+		~BCPtr() noexcept
+		{
+
+			if (prev)
+				prev->next = next;
+			if (next)
+				next->prev = prev;
+			if (block && block->referencingPtrs == this)
+				block->referencingPtrs = next;
+		}
 
 		/**
 		 * Copy one `BCPtr` into another, keeping linked lists up-to-
@@ -75,21 +129,76 @@ public:
 		 *
 		 * @param other The `BCPtr` to copy from
 		 */
-		BCPtr &operator=(const BCPtr &other) noexcept;
+		BCPtr &operator=(const BCPtr &other) noexcept
+		{
+			if (other.block != this->block) {
+				if (prev)
+					prev->next = next;
+				if (next)
+					next->prev = prev;
+				if (block->referencingPtrs == this)
+					block->referencingPtrs = next;
+
+				this->prev = nullptr;
+				this->next = other.block->referencingPtrs;
+				if (other.block->referencingPtrs)
+					other.block->referencingPtrs->prev =
+						this;
+				other.block->referencingPtrs = this;
+				this->block = other.block;
+			}
+
+			this->ptr = other->ptr;
+
+			return *this;
+		}
+
+		/**
+		 * Assign to a BCPtr with move semantics
+		 *
+		 * @param other Reference to an rvalue BCPtr to move from
+		 */
+		BCPtr &operator=(BCPtr &&other) noexcept
+		{
+			if (other.block != this->block) {
+				if (this->next) {
+					this->next->prev = this->prev;
+				}
+				if (this->prev) {
+					this->prev->next = this->next;
+				}
+				if (this->block &&
+				    this->block->referencingPtrs == this) {
+					this->block->referencingPtrs =
+						this->next;
+				}
+				this->next = other.next;
+				this->prev = other.prev;
+				if (this->block->referencingPtrs == &other) {
+					this->block->referencingPtrs = this;
+				}
+			}
+			this->block = other.block;
+			this->ptr = other.ptr;
+			other->block = nullptr;
+			other->ptr = nullptr;
+			other->next = nullptr;
+			other->prev = nullptr;
+		}
 
 		/**
 		 * Get the block the `BCPtr` is within
 		 *
 		 * @return The block the `BCPtr` is within
 		 */
-		Block *getBlock() const noexcept;
+		Block *getBlock() const noexcept { return block; }
 
 		/**
 		 * Return the point within a block this `BCPtr` points to
 		 *
 		 * @return The specific pointer this `BCPtr` points to
 		 */
-		T *getPtr() const noexcept;
+		T *getPtr() const noexcept { return ptr; }
 
 		/**
 		 * Move this BCPtr to a new location
@@ -98,11 +207,34 @@ public:
 		 * @param newPoint The pointer to the specific element this
 		 *	`BCPtr` should now point to
 		 */
-		void move(Block *newBlock, T *newPos) noexcept(NDEBUG);
+		void move(Block *newBlock, T *newPos)
+		{
+			assert(newPos >= newBlock->getStartPtr());
+			assert(newPos <
+			       newBlock->getStartPtr() + newBlock->getLength());
+			if (this->prev == nullptr) {
+				this->getBlock()->referencingPtrs = this->next;
+			} else {
+				this->prev->next = this->next;
+			}
+			if (this->next != nullptr) {
+				this->next->prev = this->prev;
+			}
+
+			this->prev = nullptr;
+			this->next = newBlock->referencingPtrs;
+			if (this->next != nullptr) {
+				this->next->prev = this;
+			}
+			newBlock->referencingPtrs = this;
+			this->ptr = newPos;
+		}
 	};
 
 	class Block {
 		friend class BCPtr;
+		friend class BlockCirclebuf<T>;
+
 	private:
 		const SuperblockAllocation *const parentSuperblock;
 		T *blockStart;
@@ -129,7 +261,65 @@ public:
 		 */
 		Block(const BlockCirclebuf<T> &parentContainer,
 		      const SuperblockAllocation *const parentSuperblock,
-		      T *blockStart, size_t blockLength, Block *next) noexcept;
+		      T *blockStart, size_t blockLength, Block *next) noexcept
+			: parentSuperblock(parentSuperblock)
+		{
+
+			this->blockStart = blockStart;
+			this->blockLength = blockLength;
+			this->tailPassedYet = true;
+
+			this->next = next;
+			if (this == next)
+				this->prev = next;
+			else
+				this->prev = next->prev;
+			next->prev = this;
+			this->logicalNext = next;
+			this->prev->next = this;
+			if (this->prev->logicalNext == next)
+				this->prev->logicalNext = this;
+
+			if (this == next)
+				this->tailPassedYet = true;
+			this->tailPassedYet = next->tailPassedYet;
+			const BCPtr &head = parentContainer.head;
+			const BCPtr &tail = parentContainer.tail;
+
+			/*
+			 * Dealing with inserting block with next as start of excluded section
+			 * Ideally should never happen; 'correct' behaviour is not necessarily
+			 * obvious here, this should hopefully be valid in all situations
+			 */
+			if (this->prev->logicalNext != this) {
+				if (head.getBlock() != next) {
+					this->tailPassedYet =
+						next->tailPassedYet;
+					next->tailPassedYet = true;
+				} else {
+					if (tail.getBlock() !=
+						    head.getBlock() ||
+					    tail.getPtr() > head.getPtr()) {
+						this->tailPassedYet = false;
+						next->tailPassedYet = false;
+					} else {
+						this->tailPassedYet =
+							next->tailPassedYet;
+						next->tailPassedYet = true;
+					}
+				}
+			}
+
+			this->willReconcileNext = next->prev->willReconcileNext;
+			next->prev->willReconcileNext = false;
+			this->willReconcilePrev = false;
+			referencingPtrs = nullptr;
+		}
+
+		Block(const Block &other) = delete;
+		Block(const Block &&other) = delete;
+		Block *operator=(const Block &other) = delete;
+		Block *operator=(const Block &&other) = delete;
 
 		/**
 		 * Split the block in two at a certain point. The new block
@@ -139,7 +329,97 @@ public:
 		 *	split
 		 * @param circlebuf The BlockCirclebuf containing this block
 		 */
-		void split(T *splitPoint, const BlockCirclebuf<T> &circlebuf);
+		void split(T *splitPoint, const BlockCirclebuf<T> &circlebuf)
+		{
+			if (splitPoint < blockStart ||
+			    splitPoint > blockStart + blockLength)
+				throw std::out_of_range(
+					"Tried to split a BlockCirclebuf block at an out-of-range splitPoint");
+
+			Block *newBlock = new Block(
+				parentSuperblock, splitPoint,
+				blockLength - (splitPoint - blockStart), this,
+				this->next);
+			blockLength = blockLength - newBlock->blockLength;
+			if (next->prev == this) {
+				next->prev = newBlock;
+			}
+			if (logicalNext->prev == this) {
+				logicalNext->prev = newBlock;
+			}
+			newBlock->prev = this;
+			newBlock->next = this->next;
+			newBlock->logicalNext = this->logicalNext;
+			this->logicalNext = newBlock;
+			this->next = newBlock;
+
+			if (circlebuf.tail.getBlock() == this) {
+				if (circlebuf.head.getBlock() == this) {
+					if (circlebuf.tail.getPtr() >=
+					    splitPoint) {
+						if (circlebuf.head.getPtr() >=
+						    splitPoint) {
+							newBlock->tailPassedYet =
+								circlebuf.head
+									.getPtr() >=
+								circlebuf.tail
+									.getPtr();
+						} else {
+							newBlock->tailPassedYet =
+								true;
+						}
+					} else {
+						if (circlebuf.head.getPtr() >=
+						    splitPoint) {
+							newBlock->tailPassedYet =
+								false;
+						} else {
+							newBlock->tailPassedYet =
+								circlebuf.head
+									.getPtr() >=
+								circlebuf.tail
+									.getPtr();
+						}
+					}
+				} else {
+					newBlock->tailPassedYet =
+						circlebuf.tail.getPtr() <
+						splitPoint;
+				}
+			} else {
+				newBlock->tailPassedYet = this->tailPassedYet;
+			}
+
+			//update all pointers after the split:
+			BCPtr *currentBCPtr = this->referencingPtrs;
+			BCPtr *nextBCPtr;
+			while (currentBCPtr) {
+				if (currentBCPtr->ptr < splitPoint) {
+					currentBCPtr = currentBCPtr->next;
+					continue;
+				}
+
+				nextBCPtr = currentBCPtr->next;
+
+				if (currentBCPtr->next)
+					currentBCPtr->next->prev =
+						currentBCPtr->prev;
+				if (currentBCPtr->prev)
+					currentBCPtr->prev->next =
+						currentBCPtr->next;
+
+				currentBCPtr->block = newBlock;
+				currentBCPtr->next = newBlock->referencingPtrs;
+				if (newBlock->referencingPtrs)
+					newBlock->referencingPtrs->prev =
+						newBlock;
+				newBlock->referencingPtrs = newBlock;
+
+				currentBCPtr = nextBCPtr;
+			}
+			if (newBlock->referencingPtrs)
+				newBlock->referencingPtrs->prev = nullptr;
+		}
 
 		/**
 		 * Split the block in two at a certain point. The new block
@@ -148,7 +428,13 @@ public:
 		 * @param splitPoint The point at which the block should be
 		 *	split
 		 */
-		void split(const BCPtr &splitPoint);
+		void split(const BCPtr &splitPoint)
+		{
+			if (splitPoint.block != this)
+				throw std::runtime_error(
+					"BCPtr provided to split a block referenced a different block");
+			split(splitPoint.ptr);
+		}
 
 		/**
 		 * Get the length of the block's memory region, as a number of 
@@ -157,28 +443,28 @@ public:
 		 * @return The length of the block's memory region, as a number
 		 *	of `T` objects.
 		 */
-		size_t getLength() const noexcept;
+		size_t getLength() const noexcept { return blockLength; }
 
 		/**
 		 * Get a pointer to the start of the block in memory.
 		 *
 		 * @return Pointer to the start of the block in memory.
 		 */
-		T *getStartPtr() const noexcept;
+		T *getStartPtr() const noexcept { return blockStart; }
 
 		/**
 		 * Get the current block's next block.
 		 *
 		 * @return The current block's next block.
 		 */
-		Block *getNext() const noexcept;
+		Block *getNext() const noexcept { return next; }
 
 		/**
 		 * Get the block previous to the current block.
 		 *
 		 * @return The previous block to the current block
 		 */
-		Block *getPrev() const noexcept;
+		Block *getPrev() const noexcept { return prev; }
 
 		/**
 		 * Get the block which 'logically' follows this one at present,
@@ -189,7 +475,7 @@ public:
 		 *
 		 * @return The 'logical' next block (see above)
 		 */
-		Block *getLogicalNext() const noexcept;
+		Block *getLogicalNext() const noexcept { return logicalNext; }
 
 		/**
 		 * Attempt to merge a block with the next block. Intended
@@ -197,7 +483,10 @@ public:
 		 *
 		 * @return Whether or not the merge was able to be completed
 		 */
-		bool attemptReconcilePrev();
+		bool attemptReconcilePrev()
+		{
+			return next->attemptReconcilePrev();
+		}
 
 		/**
 		 * Attempt to merge a block with the next block. Intended
@@ -205,7 +494,49 @@ public:
 		 *
 		 * @return Whether or not the merge was able to be completed
 		 */
-		bool attemptReconcileNext();
+		bool attemptReconcileNext()
+		{
+			//fail if reconciling with self
+			if (prev == this)
+				return false;
+
+			//fail if not in same superblock
+			if (prev->parentSuperblock != this->parentSuperblock)
+				return false;
+
+			//fail if not physically adjacent
+			if (prev->blockStart + prev->blockLength !=
+			    this->blockStart)
+				return false;
+
+			prev->blockLength =
+				prev->blockLength + this->blockLength;
+			prev->next = this->next;
+			this->next->prev = prev;
+			prev->willReconcileNext = false;
+
+			//update all BCPtrs to point to newly reconciled block.
+			BCPtr *currentBCPtr;
+			while (this->referencingPtrs) {
+				currentBCPtr = this->referencingPtrs;
+				currentBCPtr->block = prev;
+
+				if (prev->referencingPtrs)
+					prev->referencingPtrs->prev =
+						currentBCPtr;
+				this->referencingPtrs = currentBCPtr->next;
+				currentBCPtr->next = prev->referencingPtrs;
+
+				prev->referencingPtrs = currentBCPtr;
+			}
+
+			if (prev->referencingPtrs)
+				prev->referencingPtrs->prev = nullptr;
+
+			this->~Block();
+			delete this;
+			return true;
+		}
 
 		/**
 		 * Get whether or not the tail has passed this block yet. When
@@ -220,7 +551,10 @@ public:
 		 *
 		 * @return Whether the tail has passed the current block yet
 		 */
-		bool getTailPassedYet() const noexcept;
+		bool getTailPassedYet() const noexcept
+		{
+			return this->tailPassedYet == tailPassedYet;
+		}
 
 		/**
 		 * Sets whether the tail has passed the block yet or not (see
@@ -228,7 +562,10 @@ public:
 		 *
 		 * @param tailPassedYet The new value (see above)
 		 */
-		void setTailPassedYet(const bool tailPassedYet) noexcept;
+		void setTailPassedYet(const bool tailPassedYet) noexcept
+		{
+			this->tailPassedYet = tailPassedYet;
+		}
 
 	private:
 		/**
@@ -241,8 +578,13 @@ public:
 		 * @param blockLength The number of `T` objects the block 
 		 *	will contain
 		 */
-		Block(const BlockCirclebuf& parentContainer, const SuperblockAllocation *const parentSuperblock,
-		      T *blockStart, size_t blockLength) noexcept;
+		Block(const BlockCirclebuf &parentContainer,
+		      const SuperblockAllocation *const parentSuperblock,
+		      T *blockStart, size_t blockLength) noexcept
+			: Block(parentContainer, parentSuperblock, blockStart,
+				blockLength, this)
+		{
+		}
 	};
 
 private:
@@ -251,23 +593,69 @@ private:
 	BCPtr tail;
 
 	/**
+	 * Initialise a BlockCirclebuf with a predefined first block.
+	 * Delegated to by BlockCirclebuf(size_t)
+	 *
+	 * @param firstBlock The new BlockCirclebuf's first block
+	 */
+	BlockCirclebuf(Block *firstBlock)
+		: head(BCPtr(firstBlock, firstBlock->getStartPtr())),
+		  tail(BCPtr(firstBlock, firstBlock->getStartPtr()))
+	{
+	}
+
+	/**
 	 * Allocate a superblock, disconnected from any other existing 
 	 * superblocks. The first block will have itself as next and previous.
 	 *
 	 * @param size The size of the new superblock
 	 * @return The first block of the new superblock
 	 */
-	Block *allocateSuperblock(const size_t size);
+	Block *allocateSuperblock(const size_t size)
+	{
+		T *allocation = (T *)malloc(size * sizeof(T));
+		if (!allocation)
+			throw std::bad_alloc();
+		superblockAllocations.push_back(
+			SuperblockAllocation(allocation));
+		SuperblockAllocation &alloc = superblockAllocations.back();
+		return new Block(*this, &alloc, alloc.allocationStart, size);
+	}
 
 	/**
 	 * Advances the tail pointer to the start of the next block
 	 */
-	virtual void advanceTailToNextBlock();
+	virtual void advanceTailToNextBlock()
+	{
+
+		Block *nextBlock;
+		if (tail.getBlock()->getLogicalNext()->getPrev() ==
+		    tail.getBlock()) {
+			nextBlock = tail.getBlock()->getLogicalNext();
+		} else {
+			nextBlock = tail.getBlock()->getNext();
+		}
+		nextBlock->setTailPassedYet(true);
+	}
 
 	/**
 	 * Advances the head pointer to the start of the next block
 	 */
-	virtual void advanceHeadToNextBlock();
+	virtual void advanceHeadToNextBlock()
+	{
+		Block *nextBlock;
+		if (!head.getBlock()->getNext()->getTailPassedYet()) {
+			nextBlock = head.getBlock()->getNext();
+		} else {
+			nextBlock = head.getBlock()->getLogicalNext();
+			nextBlock->prev = head.getBlock();
+			while (!nextBlock->getTailPassedYet()) {
+				advanceTailToNextBlock();
+			}
+		}
+		nextBlock->setTailPassedYet(false);
+		head.move(nextBlock, nextBlock->getStartPtr());
+	}
 
 public:
 	/**
@@ -275,7 +663,10 @@ public:
 	 *
 	 * @param size The size of the first superblock in the circlebuf
 	 */
-	BlockCirclebuf(size_t size);
+	BlockCirclebuf(size_t size)
+		: BlockCirclebuf<T>(allocateSuperblock(size))
+	{
+	}
 
 	/**
 	 * Allocate a new superblock between two existing blocks.
@@ -286,7 +677,22 @@ public:
 	 * @param next The block to appear after the first block of the new 
 	 *	superblock
 	 */
-	void allocateSuperblock(size_t size, Block *prev, Block *next);
+	void allocateSuperblock(size_t size, Block *prev, Block *next)
+	{
+		Block *firstBlock = malloc(sizeof(Block));
+		if (!firstBlock)
+			throw std::bad_alloc();
+		T *allocation = (T *)malloc(size * sizeof(T));
+		if (!allocation)
+			throw std::bad_alloc();
+		superblockAllocations.push_back(
+			SuperblockAllocation(allocation));
+		SuperblockAllocation &alloc = superblockAllocations.back();
+		&firstBlock =
+			Block(*alloc, alloc.allocationStart, size, prev, next);
+		prev->next = firstBlock;
+		next->prev = firstBlock;
+	}
 
 	/**
 	 * Write objects from a buffer into the circlebuf. Written data may
@@ -295,7 +701,32 @@ public:
 	 * @param input The input buffer
 	 * @param count The number of `T` objects to be read
 	 */
-	virtual void write(const T * input, size_t count) const noexcept;
+	virtual void write(const T *input, size_t count) noexcept
+	{
+		assert(input != nullptr);
+		size_t numRead = 0;
+		while (numRead < count) {
+			size_t numToRead = count - numRead;
+			if (tail.getBlock() == head.getBlock() &&
+			    tail.getPtr() - head.getPtr() <
+				    (ptrdiff_t)numToRead) {
+				this->advanceTailToNextBlock();
+			}
+			size_t spaceLeftInBlock =
+				head.getBlock()->getStartPtr() +
+				head.getBlock()->getLength() - head.getPtr();
+			if (numToRead < spaceLeftInBlock) {
+				memcpy(head.getPtr(), input, numToRead);
+				head.move(head.getBlock(),
+					  head.getPtr() + numToRead);
+				return;
+			} else {
+				memcpy(head.getPtr(), input, spaceLeftInBlock);
+				numRead += spaceLeftInBlock;
+				this->advanceHeadToNextBlock();
+			}
+		}
+	}
 
 	/**
 	 * Read objects from the circlebuf into a buffer.
@@ -304,7 +735,54 @@ public:
 	 * @param count The number of `T` objects to read
 	 * @return The number of `T` objects successfully read
 	 */
-	virtual size_t read(T *buffer, size_t count) const noexcept;
+	virtual size_t read(T *buffer, size_t count) noexcept
+	{
+
+		auto memcpyIfNotNull = [](T *src, T *target, size_t count) {
+			if (target != nullptr) {
+				memcpy(src, target, count);
+			}
+		};
+		size_t numRead = 0;
+		while (numRead < count) {
+			size_t numToRead = count - numRead;
+			if (head.getBlock() == tail.getBlock()) {
+				if (head.getPtr() - tail.getPtr() <
+				    (ptrdiff_t)numToRead) {
+					memcpyIfNotNull(
+						tail.getPtr(), buffer + numRead,
+						head.getPtr() - tail.getPtr());
+					numRead +=
+						head.getPtr() - tail.getPtr();
+					tail.move(tail.getBlock(),
+						  head.getPtr());
+					return numRead;
+				} else {
+					memcpyIfNotNull(tail.getPtr(),
+							buffer + numRead,
+							numToRead);
+					tail.move(tail.getBlock(),
+						  tail.getPtr() + numToRead);
+					return count;
+				}
+			}
+			size_t spaceLeftInBlock =
+				tail.getBlock()->getStartPtr() +
+				tail.getBlock()->getLength() - tail.getPtr();
+			if (numToRead < spaceLeftInBlock) {
+				memcpyIfNotNull(tail.getPtr(), buffer + numRead,
+						numToRead);
+				tail.move(tail.getBlock(),
+					  tail.getPtr() + numToRead);
+				return count;
+			} else {
+				memcpyIfNotNull(tail.getPtr(), buffer + numRead,
+						spaceLeftInBlock);
+				this->advanceTailToNextBlock();
+			}
+		}
+		return numRead;
+	}
 
 	/**
 	 * Get the distance between two `BCPtrs`, from `a` to `b`
@@ -313,7 +791,25 @@ public:
 	 * @param b The second `BCPtr`
 	 * @return The distance between the two `BCPtrs`
 	 */
-	size_t ptrDifference(const BCPtr &a, const BCPtr &b) const noexcept;
+	size_t ptrDifference(const BCPtr &a, const BCPtr &b) const noexcept
+	{
+
+		size_t accumulator = 0;
+		BCPtr currentPosn(a);
+		while (currentPosn.getBlock() != b.getBlock() ||
+		       currentPosn.getPtr() < b.getPtr()) {
+			accumulator += (currentPosn.getBlock()->getLength()) -
+				       (currentPosn.getPtr() -
+					currentPosn.getBlock()->getStartPtr());
+			currentPosn.getPtr() =
+				currentPosn.getBlock()->getNext()->getStartPtr();
+			currentPosn.getBlock() =
+				currentPosn.getBlock()->getNext();
+		}
+
+		accumulator += b.getPtr() - a.getPtr();
+		return accumulator;
+	}
 
 	/**
 	 * Get the amount of data in the circlebuf (i.e. distance between head
@@ -321,9 +817,9 @@ public:
 	 *
 	 * @return The amount of data in the circlebuf
 	 */
-	size_t bufferHealth() const noexcept;
+	size_t bufferHealth() const noexcept
+	{
+		return ptrDifference(tail, head);
+	}
 };
 }
-
-//include implementation here to allow template expansion at compile time:
-//#include "blockCirclebuf.cpp"
