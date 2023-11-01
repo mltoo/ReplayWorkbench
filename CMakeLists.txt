@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.16...3.21)
+set(INSTALL_GTEST OFF)
 
 # Change obs-plugintemplate to your plugin's name in a machine-readable format (e.g.:
 # obs-myawesomeplugin) and set
 project(ReplayWorkbench VERSION 0.0.1)
-add_library(${CMAKE_PROJECT_NAME} MODULE)
+add_library(${CMAKE_PROJECT_NAME} SHARED)
+set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
 
 # Replace `Your Name Here` with the name (yours or your organization's) you want to see as the
 # author of the plugin (in the plugin's metadata itself and in the installers)
@@ -17,15 +19,30 @@ set(PLUGIN_WEBSITE "https://www.example.com")
 set(MACOS_BUNDLEID "com.example.${CMAKE_PROJECT_NAME}")
 
 # Replace `me@contoso.com` with the maintainer email address you want to put in Linux packages
-set(LINUX_MAINTAINER_EMAIL "me@mymailhost.com")
+set(LINUX_MAINTAINER_EMAIL "hello@alex-thomas.uk")
+
+set(CMAKE_INSTALL_PREFIX "/home/alex/.config/obs-studio/")
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Add your custom source files here - header files are optional and only required for visibility
 # e.g. in Xcode or Visual Studio
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.cpp)
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/blockCirclebuf.cpp)
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/ReplayFilter.cpp)
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/RawEncoder.cpp)
+target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC include)
 
 # Import libobs as main plugin dependency
 find_package(libobs REQUIRED)
 include(cmake/ObsPluginHelpers.cmake)
+include(FetchContent)
+FetchContent_Declare(
+	googletest
+	URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
 
 # Uncomment these lines if you want to use the OBS Frontend API in your plugin
 #[[
@@ -90,3 +107,11 @@ endif()
 # --- End of section ---
 
 setup_plugin_target(${CMAKE_PROJECT_NAME})
+
+add_executable(tests test/test.cc)
+target_include_directories(tests PUBLIC include)
+target_link_libraries(tests GTest::gtest_main ${CMAKE_PROJECT_NAME})
+
+include(GoogleTest)
+gtest_discover_tests(tests)
+enable_testing()
