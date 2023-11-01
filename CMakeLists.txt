@@ -108,7 +108,7 @@ endif()
 
 setup_plugin_target(${CMAKE_PROJECT_NAME})
 
-add_executable(tests test/test.cc)
+add_executable(tests test/blockCirclebufTests.cc)
 target_include_directories(tests PUBLIC include)
 target_link_libraries(tests GTest::gtest_main ${CMAKE_PROJECT_NAME})
 

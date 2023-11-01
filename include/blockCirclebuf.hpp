@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdio>
+#include <iostream>
 #include <stdexcept>
 #include <vector>
 #include <assert.h>
@@ -74,7 +76,9 @@ public:
 			this->ptr = ptr;
 			this->prev = nullptr;
 			this->next = block->referencingPtrs;
-			block->referencingPtrs->prev = this;
+			if (block->referencingPtrs) {
+				block->referencingPtrs->prev = this;
+			}
 			block->referencingPtrs = this;
 		}
 
@@ -757,20 +761,24 @@ public:
 	 */
 	virtual size_t read(T *buffer, size_t count) noexcept
 	{
-
-		auto memcpyIfNotNull = [](T *src, T *target, size_t count) {
-			if (target != nullptr) {
-				memcpy(src, target, count);
+		auto memcpyIfNotNull = [](T *dest, const T *src, size_t count) {
+			printf("HERE\n");
+			if (src != nullptr) {
+				printf("dest %lx, src %lx, count %lu\n\n",
+				       (long unsigned int)dest, (long unsigned int)src, count);
+				memcpy(dest, src, count);
 			}
 		};
 		size_t numRead = 0;
 		while (numRead < count) {
 			size_t numToRead = count - numRead;
+			printf("numRead: %lu, count: %lu, numToRead: %lu\n\n",
+			       numRead, count, numToRead);
 			if (head.getBlock() == tail.getBlock()) {
 				if (head.getPtr() - tail.getPtr() <
 				    (ptrdiff_t)numToRead) {
 					memcpyIfNotNull(
-						tail.getPtr(), buffer + numRead,
+						buffer + numRead, tail.getPtr(),
 						head.getPtr() - tail.getPtr());
 					numRead +=
 						head.getPtr() - tail.getPtr();
@@ -778,8 +786,8 @@ public:
 						  head.getPtr());
 					return numRead;
 				} else {
-					memcpyIfNotNull(tail.getPtr(),
-							buffer + numRead,
+					memcpyIfNotNull(buffer + numRead,
+							tail.getPtr(),
 							numToRead);
 					tail.move(tail.getBlock(),
 						  tail.getPtr() + numToRead);
@@ -790,13 +798,13 @@ public:
 				tail.getBlock()->getStartPtr() +
 				tail.getBlock()->getLength() - tail.getPtr();
 			if (numToRead < spaceLeftInBlock) {
-				memcpyIfNotNull(tail.getPtr(), buffer + numRead,
+				memcpyIfNotNull(buffer + numRead, tail.getPtr(),
 						numToRead);
 				tail.move(tail.getBlock(),
 					  tail.getPtr() + numToRead);
 				return count;
 			} else {
-				memcpyIfNotNull(tail.getPtr(), buffer + numRead,
+				memcpyIfNotNull(buffer + numRead, tail.getPtr(),
 						spaceLeftInBlock);
 				this->advanceTailToNextBlock();
 			}
