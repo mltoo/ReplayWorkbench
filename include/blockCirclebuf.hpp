@@ -2,7 +2,9 @@
 
 #include <cstdio>
 #include <iostream>
+#include <new>
 #include <stdexcept>
+#include <tuple>
 #include <vector>
 #include <assert.h>
 #include <string.h>
@@ -27,7 +29,11 @@ public:
 	 * despite splitting blocks, etc.
 	 */
 	struct SuperblockAllocation {
-		T *const allocationStart;
+	private:
+		T *allocationStart;
+
+	public:
+		T *getAllocationStart() { return allocationStart; }
 
 		/**
 		 * Initialised a superblock around an allocated section of
@@ -36,9 +42,39 @@ public:
 		 * @param allocationStart The start of the allocated section of
 		 *	memory.
 		 */
-		SuperblockAllocation(T *const allocationStart) noexcept
-			: allocationStart(allocationStart)
+		SuperblockAllocation(const size_t size) noexcept
+			: allocationStart([size]() {
+				  T *alloc = (T *)malloc(size * sizeof(T));
+				  if (!alloc)
+					  throw std::bad_alloc();
+				  return alloc;
+			  }())
 		{
+		}
+
+		SuperblockAllocation(const SuperblockAllocation &other) = delete;
+
+		SuperblockAllocation(SuperblockAllocation &&other) noexcept
+			: allocationStart(other.allocationStart)
+		{
+			other.allocationStart = nullptr;
+		}
+
+		SuperblockAllocation &
+		operator=(SuperblockAllocation &&other) noexcept
+		{
+			this->allocationStart = other.allocationStart;
+			other.allocationStart = nullptr;
+		}
+
+		SuperblockAllocation &
+		operator=(SuperblockAllocation &other) = delete;
+
+		~SuperblockAllocation()
+		{
+			if (allocationStart) {
+				free(allocationStart);
+			}
 		}
 	};
 
@@ -58,6 +94,17 @@ public:
 		BCPtr *prev;
 
 	public:
+		/**
+		 * Create a 'blank' `BCPtr`.
+		 */
+		BCPtr()
+			: block(nullptr),
+			  ptr(nullptr),
+			  next(nullptr),
+			  prev(nullptr)
+		{
+		}
+
 		/**
 		 * Create a `BCPtr` at a certain position in a block
 		 *
@@ -120,7 +167,6 @@ public:
 		 */
 		~BCPtr() noexcept
 		{
-
 			if (prev)
 				prev->next = next;
 			if (next)
@@ -154,13 +200,13 @@ public:
 				this->block = other.block;
 			}
 
-			this->ptr = other->ptr;
+			this->ptr = other.ptr;
 
 			return *this;
 		}
 
 		/**
-		 * Assign to a BCPtr with move semantics
+		 * Assign to a BCPtr with move semantics.
 		 *
 		 * @param other Reference to an rvalue BCPtr to move from
 		 */
@@ -180,16 +226,34 @@ public:
 				}
 				this->next = other.next;
 				this->prev = other.prev;
-				if (this->block->referencingPtrs == &other) {
+				this->block = other.block;
+				if (this->block &&
+				    this->block->referencingPtrs == &other) {
 					this->block->referencingPtrs = this;
 				}
+				if (this->next) {
+					this->next->prev = this;
+				}
+				if (this->prev) {
+					this->prev->next = this;
+				}
+			} else {
+				if (other.prev) {
+					other.prev->next = other.next;
+				} else {
+					other.block->referencingPtrs =
+						other.next;
+				}
+				if (other.next) {
+					other.next->prev = other.prev;
+				}
 			}
-			this->block = other.block;
 			this->ptr = other.ptr;
-			other->block = nullptr;
-			other->ptr = nullptr;
-			other->next = nullptr;
-			other->prev = nullptr;
+			other.block = nullptr;
+			other.ptr = nullptr;
+			other.next = nullptr;
+			other.prev = nullptr;
+			return *this;
 		}
 
 		/**
@@ -215,25 +279,37 @@ public:
 		 */
 		void move(Block *newBlock, T *newPos)
 		{
-			assert(newPos >= newBlock->getStartPtr());
-			assert(newPos <
-			       newBlock->getStartPtr() + newBlock->getLength());
-			if (this->prev == nullptr) {
-				this->getBlock()->referencingPtrs = this->next;
-			} else {
-				this->prev->next = this->next;
-			}
-			if (this->next != nullptr) {
-				this->next->prev = this->prev;
+			if (this->block) {
+				if (this->prev == nullptr) {
+					this->block->referencingPtrs =
+						this->next;
+				} else {
+					this->prev->next = this->next;
+				}
+				if (this->next != nullptr) {
+					this->next->prev = this->prev;
+				}
 			}
 
-			this->prev = nullptr;
-			this->next = newBlock->referencingPtrs;
-			if (this->next != nullptr) {
-				this->next->prev = this;
+			if (!newBlock) {
+				assert(!newPos);
+				this->block = nullptr;
+				this->ptr = nullptr;
+				this->next = nullptr;
+				this->prev = nullptr;
+			} else {
+				assert(newPos >= newBlock->getStartPtr());
+				assert(newPos < newBlock->getStartPtr() +
+							newBlock->getLength());
+
+				this->prev = nullptr;
+				this->next = newBlock->referencingPtrs;
+				if (this->next != nullptr) {
+					this->next->prev = this;
+				}
+				newBlock->referencingPtrs = this;
+				this->ptr = newPos;
 			}
-			newBlock->referencingPtrs = this;
-			this->ptr = newPos;
 		}
 	};
 
@@ -269,7 +345,6 @@ public:
 		      T *blockStart, size_t blockLength, Block *next) noexcept
 			: parentSuperblock(parentSuperblock)
 		{
-
 			this->blockStart = blockStart;
 			this->blockLength = blockLength;
 			this->tailPassedYet = true;
@@ -331,12 +406,10 @@ public:
 			}
 			while (referencingPtrs) {
 				BCPtr *next = referencingPtrs->next;
-				referencingPtrs->next = nullptr;
-				referencingPtrs->prev = nullptr;
-				referencingPtrs->block = nullptr;
-				referencingPtrs->ptr = nullptr;
+				referencingPtrs->move(nullptr, nullptr);
 				referencingPtrs = next;
 			}
+			std::flush(std::cout);
 		}
 
 	public:
@@ -617,18 +690,6 @@ private:
 	BCPtr tail;
 
 	/**
-	 * Initialise a BlockCirclebuf with a predefined first block.
-	 * Delegated to by BlockCirclebuf(size_t)
-	 *
-	 * @param firstBlock The new BlockCirclebuf's first block
-	 */
-	BlockCirclebuf(Block *firstBlock)
-		: head(BCPtr(firstBlock, firstBlock->getStartPtr())),
-		  tail(BCPtr(firstBlock, firstBlock->getStartPtr()))
-	{
-	}
-
-	/**
 	 * Allocate a superblock, disconnected from any other existing 
 	 * superblocks. The first block will have itself as next and previous.
 	 *
@@ -637,11 +698,7 @@ private:
 	 */
 	Block *allocateSuperblock(const size_t size)
 	{
-		T *allocation = (T *)malloc(size * sizeof(T));
-		if (!allocation)
-			throw std::bad_alloc();
-		superblockAllocations.push_back(
-			SuperblockAllocation(allocation));
+		superblockAllocations.emplace_back(size);
 		SuperblockAllocation &alloc = superblockAllocations.back();
 		return new Block(*this, &alloc, alloc.allocationStart, size);
 	}
@@ -683,13 +740,53 @@ private:
 
 public:
 	/**
-	 * Construct a `BlockCirclebuf`.
+	 * Initialise a BlockCirclebuf with an initial superblock of a certain size
 	 *
-	 * @param size The size of the first superblock in the circlebuf
+	 * @param firstBlock The new BlockCirclebuf's first block
 	 */
 	BlockCirclebuf(size_t size)
-		: BlockCirclebuf<T>(allocateSuperblock(size))
+		: superblockAllocations(),
+		  head([this, size]() {
+			  superblockAllocations.emplace_back(size);
+			  return BCPtr(
+				  new Block(*this,
+					    &superblockAllocations.front(),
+					    superblockAllocations[0]
+						    .getAllocationStart(),
+					    size),
+				  superblockAllocations[0].getAllocationStart());
+		  }()),
+		  tail(BCPtr(head.getBlock(), head.getPtr()))
 	{
+	}
+
+	~BlockCirclebuf()
+	{
+		Block *currentBlock = head.getBlock();
+		while (currentBlock) {
+			Block *nextBlock = currentBlock->getNext();
+			delete currentBlock;
+			currentBlock = nextBlock == currentBlock ? nullptr
+								 : nextBlock;
+		}
+	}
+
+	BlockCirclebuf &operator=(const BlockCirclebuf &other) = delete;
+	BlockCirclebuf(const BlockCirclebuf &other) = delete;
+	BlockCirclebuf &operator=(BlockCirclebuf &&other)
+	{
+		Block *currentBlock = head.getBlock();
+		while (currentBlock) {
+			Block *nextBlock = currentBlock->getNext();
+			delete currentBlock;
+			currentBlock = nextBlock == currentBlock ? nullptr
+								 : nextBlock;
+		}
+		this->tail = std::move(other.tail);
+		this->head = std::move(other.head);
+		this->superblockAllocations =
+			std::move(other.superblockAllocations);
+		return *this;
 	}
 
 	/**
@@ -703,17 +800,14 @@ public:
 	 */
 	void allocateSuperblock(size_t size, Block *prev, Block *next)
 	{
-		Block *firstBlock = malloc(sizeof(Block));
-		if (!firstBlock)
-			throw std::bad_alloc();
 		T *allocation = (T *)malloc(size * sizeof(T));
 		if (!allocation)
 			throw std::bad_alloc();
 		superblockAllocations.push_back(
 			SuperblockAllocation(allocation));
 		SuperblockAllocation &alloc = superblockAllocations.back();
-		&firstBlock =
-			Block(*alloc, alloc.allocationStart, size, prev, next);
+		Block *firstBlock = new Block(*alloc, alloc.allocationStart,
+					      size, prev, next);
 		prev->next = firstBlock;
 		next->prev = firstBlock;
 	}
@@ -762,18 +856,13 @@ public:
 	virtual size_t read(T *buffer, size_t count) noexcept
 	{
 		auto memcpyIfNotNull = [](T *dest, const T *src, size_t count) {
-			printf("HERE\n");
 			if (src != nullptr) {
-				printf("dest %lx, src %lx, count %lu\n\n",
-				       (long unsigned int)dest, (long unsigned int)src, count);
 				memcpy(dest, src, count);
 			}
 		};
 		size_t numRead = 0;
 		while (numRead < count) {
 			size_t numToRead = count - numRead;
-			printf("numRead: %lu, count: %lu, numToRead: %lu\n\n",
-			       numRead, count, numToRead);
 			if (head.getBlock() == tail.getBlock()) {
 				if (head.getPtr() - tail.getPtr() <
 				    (ptrdiff_t)numToRead) {
