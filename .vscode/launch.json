@@ -1,0 +1,51 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "cppdbg",
+            "request": "launch",
+            "name": "Build and run specific test",
+            "program": "build/tests",
+            "cwd": "${workspaceFolder}",
+            "stopOnEntry": false,
+            "args": [ "--gtest_filter=${input:pickTest}"],
+            "preLaunchTask": "cmake -S . -B build; cmake --build build"
+        },
+        {
+            "type": "cppdbg",
+            "request": "launch",
+            "name": "Build and run tests",
+            "program": "build/tests",
+            "cwd": "${workspaceFolder}",
+            "stopOnEntry": false,
+            "preLaunchTask": "cmake -S . -B build; cmake --build build"
+        },
+        {
+            "type": "cppdbg",
+            "request": "launch",
+            "name": "Run specific test",
+            "program": "build/tests",
+            "cwd": "${workspaceFolder}",
+            "stopOnEntry": false,
+            "args": [ "--gtest_filter=${input:pickTest}"]
+        },
+        {
+            "type": "cppdbg",
+            "request": "launch",
+            "name": "Run tests",
+            "program": "build/tests",
+            "cwd": "${workspaceFolder}",
+            "stopOnEntry": false
+        }
+    ],
+    "inputs": [
+        {
+            "id": "pickTest",
+	    "type": "command",
+	    "command": "shellCommand.execute",
+	    "args": {
+		    "command": "build/tests --gtest_list_tests | grep '.*\\.$' | while read group; do build/tests --gtest_list_tests --gtest_filter=\"$group*\" | grep '  .*' | cut -c3- | awk -v g=$group '{print g$1}' ; done"
+	    }
+        }
+    ]
+}

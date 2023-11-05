@@ -5,7 +5,8 @@
 /release/
 /installer/Output/
 
-.vscode
+.vscode/*
+!.vscode/launch.json
 .idea
 
 .cache/
