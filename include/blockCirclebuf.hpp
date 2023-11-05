@@ -650,7 +650,7 @@ public:
 		 */
 		bool getTailPassedYet() const noexcept
 		{
-			return this->tailPassedYet == tailPassedYet;
+			return this->tailPassedYet;
 		}
 
 		/**
@@ -825,21 +825,31 @@ public:
 		size_t numRead = 0;
 		while (numRead < count) {
 			size_t numToRead = count - numRead;
+			/* We only need to worry about the tail being in the 
+			 * same block as the head if it entered before the head
+			 * (from `block->getTailPassedYet()`) and if there isn't
+			 * enough space between them for the new data.
+			 */
 			if (tail.getBlock() == head.getBlock() &&
+			    !(head.getBlock()->getTailPassedYet()) &&
 			    tail.getPtr() - head.getPtr() <
 				    (ptrdiff_t)numToRead) {
-				this->advanceTailToNextBlock();
+				long numToSkip = numToRead - (tail.getPtr() -
+							      head.getPtr());
+				read(nullptr, numToSkip);
 			}
 			size_t spaceLeftInBlock =
 				head.getBlock()->getStartPtr() +
 				head.getBlock()->getLength() - head.getPtr();
 			if (numToRead < spaceLeftInBlock) {
-				memcpy(head.getPtr(), input, numToRead);
+				memcpy(head.getPtr(), input + numRead,
+				       numToRead);
 				head.move(head.getBlock(),
 					  head.getPtr() + numToRead);
 				return;
 			} else {
-				memcpy(head.getPtr(), input, spaceLeftInBlock);
+				memcpy(head.getPtr(), input + numRead,
+				       spaceLeftInBlock);
 				numRead += spaceLeftInBlock;
 				this->advanceHeadToNextBlock();
 			}
@@ -856,14 +866,19 @@ public:
 	virtual size_t read(T *buffer, size_t count) noexcept
 	{
 		auto memcpyIfNotNull = [](T *dest, const T *src, size_t count) {
-			if (src != nullptr) {
+			if (dest) {
 				memcpy(dest, src, count);
 			}
 		};
 		size_t numRead = 0;
 		while (numRead < count) {
 			size_t numToRead = count - numRead;
-			if (head.getBlock() == tail.getBlock()) {
+			/* If the tail is ahead of the head (implied by 
+			 * `!block->getTailPassedYet()`), we can ignore that the
+			 * head and tail are in the same block.
+			 */
+			if (head.getBlock() == tail.getBlock() &&
+			    tail.getBlock()->getTailPassedYet()) {
 				if (head.getPtr() - tail.getPtr() <
 				    (ptrdiff_t)numToRead) {
 					memcpyIfNotNull(
@@ -895,6 +910,7 @@ public:
 			} else {
 				memcpyIfNotNull(buffer + numRead, tail.getPtr(),
 						spaceLeftInBlock);
+				numRead += spaceLeftInBlock;
 				this->advanceTailToNextBlock();
 			}
 		}

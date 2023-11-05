@@ -33,3 +33,12 @@ TEST(BlockCirclebufTests, BlockedRead) {
 	EXPECT_EQ(output[0], 'D');
 	EXPECT_EQ(output[1], 'A');
 }
+
+TEST(BlockCirclebufTests, WriteWraparound) {
+	BlockCirclebuf<char> cb = BlockCirclebuf<char>(2);
+	char output[128] = {'A'};
+	const char *testStr = "1234";
+	cb.write(testStr, 3);
+	cb.read(&output[0], 1);
+	EXPECT_EQ(output[0], '2');
+}
