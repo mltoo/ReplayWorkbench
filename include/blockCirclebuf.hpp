@@ -289,6 +289,7 @@ public:
 				if (this->next != nullptr) {
 					this->next->prev = this->prev;
 				}
+				this->block = newBlock;
 			}
 
 			if (!newBlock) {
@@ -318,7 +319,6 @@ public:
 		friend class BlockCirclebuf<T>;
 
 	private:
-		const SuperblockAllocation *const parentSuperblock;
 		T *blockStart;
 		size_t blockLength;
 		Block *next;
@@ -340,10 +340,29 @@ public:
 		 *	`T` objects it can contain
 		 * @param next The block which should follow the new block
 		 */
-		Block(const BlockCirclebuf<T> &parentContainer,
-		      const SuperblockAllocation *const parentSuperblock,
-		      T *blockStart, size_t blockLength, Block *next) noexcept
-			: parentSuperblock(parentSuperblock)
+		Block(const BlockCirclebuf<T> &parentContainer, T *blockStart,
+		      size_t blockLength, Block *next) noexcept
+			: Block(parentContainer, blockStart, blockLength, next,
+				next)
+		{
+		}
+
+		/**
+		 * Construct a block before an existing block. Preferably
+		 * blocks should only be made before data is written or any
+		 * blocks are split, otherwise this probably needs re-writing
+		 *
+		 * @param parentSuperblock The superblock containing this block
+		 * @param blockStart Pointer to where this block should start
+		 * @param blockLength The length of the block, as a number of
+		 *	`T` objects it can contain
+		 * @param next The block which should follow the new block
+		 * @param logicalNext The block which currently follows the new
+		 *	block in the order of data written
+		 */
+		Block(const BlockCirclebuf<T> &parentContainer, T *blockStart,
+		      size_t blockLength, Block *next,
+		      Block *logicalNext) noexcept
 		{
 			this->blockStart = blockStart;
 			this->blockLength = blockLength;
@@ -354,15 +373,15 @@ public:
 				this->prev = next;
 			else
 				this->prev = next->prev;
+			this->logicalNext = logicalNext;
+			if (logicalNext->prev == next->prev) {
+				logicalNext->prev = this;
+			}
 			next->prev = this;
-			this->logicalNext = next;
 			this->prev->next = this;
 			if (this->prev->logicalNext == next)
 				this->prev->logicalNext = this;
 
-			if (this == next)
-				this->tailPassedYet = true;
-			this->tailPassedYet = next->tailPassedYet;
 			const BCPtr &head = parentContainer.head;
 			const BCPtr &tail = parentContainer.tail;
 
@@ -434,21 +453,11 @@ public:
 					"Tried to split a BlockCirclebuf block at an out-of-range splitPoint");
 
 			Block *newBlock = new Block(
-				parentSuperblock, splitPoint,
-				blockLength - (splitPoint - blockStart), this,
-				this->next);
-			blockLength = blockLength - newBlock->blockLength;
-			if (next->prev == this) {
-				next->prev = newBlock;
-			}
-			if (logicalNext->prev == this) {
-				logicalNext->prev = newBlock;
-			}
-			newBlock->prev = this;
-			newBlock->next = this->next;
-			newBlock->logicalNext = this->logicalNext;
+				circlebuf, splitPoint,
+				blockLength - (splitPoint - blockStart),
+				this->next, this->logicalNext);
+			this->blockLength = blockLength - newBlock->blockLength;
 			this->logicalNext = newBlock;
-			this->next = newBlock;
 
 			if (circlebuf.tail.getBlock() == this) {
 				if (circlebuf.head.getBlock() == this) {
@@ -509,8 +518,8 @@ public:
 				currentBCPtr->next = newBlock->referencingPtrs;
 				if (newBlock->referencingPtrs)
 					newBlock->referencingPtrs->prev =
-						newBlock;
-				newBlock->referencingPtrs = newBlock;
+						currentBCPtr;
+				newBlock->referencingPtrs = currentBCPtr;
 
 				currentBCPtr = nextBCPtr;
 			}
@@ -524,13 +533,15 @@ public:
 		 *
 		 * @param splitPoint The point at which the block should be
 		 *	split
+		 * @param circlebuf The BlockCirclebuf containing this block
 		 */
-		void split(const BCPtr &splitPoint)
+		void split(const BCPtr &splitPoint,
+			   const BlockCirclebuf<T> &circlebuf)
 		{
 			if (splitPoint.block != this)
 				throw std::runtime_error(
 					"BCPtr provided to split a block referenced a different block");
-			split(splitPoint.ptr);
+			split(splitPoint.ptr, circlebuf);
 		}
 
 		/**
@@ -669,17 +680,13 @@ public:
 		 * Initialise a block with itself as its next and previous.
 		 * Intended for starting a new BlockCirclebuf/superblock.
 		 *
-		 * @param parentSuperblock The parent superblock of the new 
-		 *	block
 		 * @param blockStart Pointer to where the new block will start 
 		 * @param blockLength The number of `T` objects the block 
 		 *	will contain
 		 */
-		Block(const BlockCirclebuf &parentContainer,
-		      const SuperblockAllocation *const parentSuperblock,
-		      T *blockStart, size_t blockLength) noexcept
-			: Block(parentContainer, parentSuperblock, blockStart,
-				blockLength, this)
+		Block(const BlockCirclebuf &parentContainer, T *blockStart,
+		      size_t blockLength) noexcept
+			: Block(parentContainer, blockStart, blockLength, this)
 		{
 		}
 	};
@@ -717,6 +724,7 @@ private:
 			nextBlock = tail.getBlock()->getNext();
 		}
 		nextBlock->setTailPassedYet(true);
+		tail.move(nextBlock, nextBlock->getStartPtr());
 	}
 
 	/**
@@ -750,7 +758,6 @@ public:
 			  superblockAllocations.emplace_back(size);
 			  return BCPtr(
 				  new Block(*this,
-					    &superblockAllocations.front(),
 					    superblockAllocations[0]
 						    .getAllocationStart(),
 					    size),
@@ -954,5 +961,9 @@ public:
 	{
 		return ptrDifference(tail, head);
 	}
+
+	const BCPtr &getHead() const { return head; }
+
+	const BCPtr &getTail() const { return tail; }
 };
 }
