@@ -8,7 +8,7 @@
             "program": "build/tests",
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
-            "args": [ "--gtest_filter=${input:pickTest}"],
+            "args": [ "--gtest_filter=${input:pickTest}","--gtest_color=yes"],
             "preLaunchTask": "cmake -S . -B build; cmake --build build"
         },
         {
@@ -18,7 +18,8 @@
             "program": "build/tests",
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
-            "preLaunchTask": "cmake -S . -B build; cmake --build build"
+            "preLaunchTask": "cmake -S . -B build; cmake --build build",
+	    "args": [ "--gtest_color=yes" ]
         },
         {
             "type": "cppdbg",
@@ -27,7 +28,7 @@
             "program": "build/tests",
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
-            "args": [ "--gtest_filter=${input:pickTest}"]
+            "args": [ "--gtest_filter=${input:pickTest}", "--gtest_color=yes"]
         },
         {
             "type": "cppdbg",
@@ -35,7 +36,8 @@
             "name": "Run tests",
             "program": "build/tests",
             "cwd": "${workspaceFolder}",
-            "stopOnEntry": false
+            "stopOnEntry": false,
+	    "args": [ "--gtest_color=yes" ]
         }
     ],
     "inputs": [

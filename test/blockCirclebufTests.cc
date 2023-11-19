@@ -8,7 +8,7 @@ using namespace ReplayWorkbench;
 
 TEST(BlockCirclebufTests, SimpleWriteRead)
 {
-	BlockCirclebuf<char> cb = BlockCirclebuf<char>(128);
+	BlockCirclebuf<char> cb(128);
 	const char *input = "test123";
 	cb.write(input, 8);
 	char output[128] = {'A'};
@@ -18,7 +18,7 @@ TEST(BlockCirclebufTests, SimpleWriteRead)
 
 TEST(BlockCirclebufTests, BlockedRead)
 {
-	BlockCirclebuf<char> cb = BlockCirclebuf<char>(128);
+	BlockCirclebuf<char> cb(128);
 	char output[128] = {'A'};
 	const char *testStr = "DEADBEEF";
 	strcpy(&output[0], testStr);
@@ -38,7 +38,7 @@ TEST(BlockCirclebufTests, BlockedRead)
 
 TEST(BlockCirclebufTests, WriteWraparound)
 {
-	BlockCirclebuf<char> cb = BlockCirclebuf<char>(2);
+	BlockCirclebuf<char> cb(2);
 	char output[128] = {'A'};
 	const char *testStr = "1234";
 	cb.write(testStr, 3);
@@ -48,7 +48,7 @@ TEST(BlockCirclebufTests, WriteWraparound)
 
 TEST(BlockCirclebufTests, BlockSplit)
 {
-	BlockCirclebuf<char> cb = BlockCirclebuf<char>(4);
+	BlockCirclebuf<char> cb(4);
 	BlockCirclebuf<char>::BCPtr splitPtr = cb.getHead();
 	char output[128] = {'A'};
 	splitPtr.move(splitPtr.getBlock(), splitPtr.getPtr() + 2);
