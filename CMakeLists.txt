@@ -29,8 +29,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # e.g. in Xcode or Visual Studio
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.cpp)
 #target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/blockCirclebuf.cpp)
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/ReplayFilter.cpp)
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/RawEncoder.cpp)
+#target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/ReplayFilter.cpp)
+#target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/RawEncoder.cpp)
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC include)
 
 # Import libobs as main plugin dependency

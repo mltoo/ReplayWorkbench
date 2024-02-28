@@ -323,10 +323,10 @@ public:
 		size_t blockLength;
 		Block *next;
 		Block *prev;
-		Block *logicalNext;
-		bool tailPassedYet;
-		bool willReconcilePrev;
-		bool willReconcileNext;
+		Block *logicalPrev;
+		Block *protectionStartEndPtr;
+		size_t protectionLength;
+		size_t totalProtectionLength;
 		BCPtr *referencingPtrs;
 
 		/**
@@ -342,76 +342,19 @@ public:
 		 */
 		Block(const BlockCirclebuf<T> &parentContainer, T *blockStart,
 		      size_t blockLength, Block *next) noexcept
-			: Block(parentContainer, blockStart, blockLength, next,
-				next)
-		{
-		}
-
-		/**
-		 * Construct a block before an existing block. Preferably
-		 * blocks should only be made before data is written or any
-		 * blocks are split, otherwise this probably needs re-writing
-		 *
-		 * @param parentSuperblock The superblock containing this block
-		 * @param blockStart Pointer to where this block should start
-		 * @param blockLength The length of the block, as a number of
-		 *	`T` objects it can contain
-		 * @param next The block which should follow the new block
-		 * @param logicalNext The block which currently follows the new
-		 *	block in the order of data written
-		 */
-		Block(const BlockCirclebuf<T> &parentContainer, T *blockStart,
-		      size_t blockLength, Block *next,
-		      Block *logicalNext) noexcept
 		{
 			this->blockStart = blockStart;
 			this->blockLength = blockLength;
-			this->tailPassedYet = true;
 
 			this->next = next;
 			if (this == next)
 				this->prev = next;
 			else
 				this->prev = next->prev;
-			this->logicalNext = logicalNext;
-			if (logicalNext->prev == next->prev) {
-				logicalNext->prev = this;
-			}
+			this->logicalPrev = nullptr;
 			next->prev = this;
 			this->prev->next = this;
-			if (this->prev->logicalNext == next)
-				this->prev->logicalNext = this;
 
-			const BCPtr &head = parentContainer.head;
-			const BCPtr &tail = parentContainer.tail;
-
-			/*
-			 * Dealing with inserting block with next as start of excluded section
-			 * Ideally should never happen; 'correct' behaviour is not necessarily
-			 * obvious here, this should hopefully be valid in all situations
-			 */
-			if (this->prev->logicalNext != this) {
-				if (head.getBlock() != next) {
-					this->tailPassedYet =
-						next->tailPassedYet;
-					next->tailPassedYet = true;
-				} else {
-					if (tail.getBlock() !=
-						    head.getBlock() ||
-					    tail.getPtr() > head.getPtr()) {
-						this->tailPassedYet = false;
-						next->tailPassedYet = false;
-					} else {
-						this->tailPassedYet =
-							next->tailPassedYet;
-						next->tailPassedYet = true;
-					}
-				}
-			}
-
-			this->willReconcileNext = next->prev->willReconcileNext;
-			next->prev->willReconcileNext = false;
-			this->willReconcilePrev = false;
 			referencingPtrs = nullptr;
 		}
 
@@ -447,6 +390,12 @@ public:
 		 */
 		void split(T *splitPoint, const BlockCirclebuf<T> &circlebuf)
 		{
+			// utility variables for conciseness:
+			T *headPtr = circlebuf.head.getPtr();
+			T *tailPtr = circlebuf.head.getPtr();
+			Block *headBlock = circlebuf.head.getBlock();
+			Block *tailBlock = circlebuf.tail.getBlock();
+
 			if (splitPoint < blockStart ||
 			    splitPoint > blockStart + blockLength)
 				throw std::out_of_range(
@@ -455,45 +404,32 @@ public:
 			Block *newBlock = new Block(
 				circlebuf, splitPoint,
 				blockLength - (splitPoint - blockStart),
-				this->next, this->logicalNext);
+				this->next);
 			this->blockLength = blockLength - newBlock->blockLength;
-			this->logicalNext = newBlock;
 
-			if (circlebuf.tail.getBlock() == this) {
-				if (circlebuf.head.getBlock() == this) {
-					if (circlebuf.tail.getPtr() >=
-					    splitPoint) {
-						if (circlebuf.head.getPtr() >=
-						    splitPoint) {
-							newBlock->tailPassedYet =
-								circlebuf.head
-									.getPtr() >=
-								circlebuf.tail
-									.getPtr();
-						} else {
-							newBlock->tailPassedYet =
-								true;
-						}
-					} else {
-						if (circlebuf.head.getPtr() >=
-						    splitPoint) {
-							newBlock->tailPassedYet =
-								false;
-						} else {
-							newBlock->tailPassedYet =
-								circlebuf.head
-									.getPtr() >=
-								circlebuf.tail
-									.getPtr();
-						}
+			bool asInCurrentBlock = true;
+			if (headBlock == this) {
+				if (tailBlock == this) {
+					if (headPtr < splitPoint &&
+					    tailPtr >= splitPoint) {
+						newBlock->logicalPrev = nullptr;
+						asInCurrentBlock = false;
+					} else if (headPtr >= splitPoint &&
+						   tailPtr < splitPoint) {
+						newBlock->logicalPrev = this;
+						asInCurrentBlock = false;
 					}
-				} else {
-					newBlock->tailPassedYet =
-						circlebuf.tail.getPtr() <
-						splitPoint;
+				} else if (headPtr < splitPoint) {
+					newBlock->logicalPrev = nullptr;
+					asInCurrentBlock = false;
 				}
-			} else {
-				newBlock->tailPassedYet = this->tailPassedYet;
+			} else if (tailBlock == this && tailPtr < splitPoint) {
+				newBlock->logicalPrev = this;
+				asInCurrentBlock = false;
+			}
+			if (asInCurrentBlock) {
+				newBlock->logicalPrev =
+					this->logicalPrev ? nullptr : this;
 			}
 
 			//update all pointers after the split:
@@ -575,17 +511,6 @@ public:
 		Block *getPrev() const noexcept { return prev; }
 
 		/**
-		 * Get the block which 'logically' follows this one at present,
-		 * that is, the block which follows this one in the current
-		 * 'active' BlockCirclebuf (i.e. skipping blocks being excluded
-		 * temporarily from the active buffer, for example when sections
-		 * of the buffer need to be preserved).
-		 *
-		 * @return The 'logical' next block (see above)
-		 */
-		Block *getLogicalNext() const noexcept { return logicalNext; }
-
-		/**
 		 * Attempt to merge a block with the next block. Intended
 		 * for use after removing read/write protection from a block.
 		 *
@@ -646,35 +571,6 @@ public:
 			return true;
 		}
 
-		/**
-		 * Get whether or not the tail has passed this block yet. When
-		 * a section has been excluded from the 'active' buffer, the
-		 * tail must scan that excluded section once, following the old
-		 * continuuity of the buffer, before it re-enters the active
-		 * buffer section. The head has to allow the tail to re-enter
-		 * the active buffer before the head can proceed past the point
-		 * at which the 'seam' at which the excluded section split away.
-		 * This variable ensures any block the head enters meets that
-		 * requirement
-		 *
-		 * @return Whether the tail has passed the current block yet
-		 */
-		bool getTailPassedYet() const noexcept
-		{
-			return this->tailPassedYet;
-		}
-
-		/**
-		 * Sets whether the tail has passed the block yet or not (see
-		 * docs for `getTailPassedYet`)
-		 *
-		 * @param tailPassedYet The new value (see above)
-		 */
-		void setTailPassedYet(const bool tailPassedYet) noexcept
-		{
-			this->tailPassedYet = tailPassedYet;
-		}
-
 	private:
 		/**
 		 * Initialise a block with itself as its next and previous.
@@ -723,7 +619,6 @@ private:
 		} else {
 			nextBlock = tail.getBlock()->getNext();
 		}
-		nextBlock->setTailPassedYet(true);
 		tail.move(nextBlock, nextBlock->getStartPtr());
 	}
 
@@ -732,18 +627,57 @@ private:
 	 */
 	virtual void advanceHeadToNextBlock()
 	{
-		Block *nextBlock;
-		if (!head.getBlock()->getNext()->getTailPassedYet()) {
-			nextBlock = head.getBlock()->getNext();
-		} else {
-			nextBlock = head.getBlock()->getLogicalNext();
-			nextBlock->prev = head.getBlock();
-			while (!nextBlock->getTailPassedYet()) {
-				advanceTailToNextBlock();
+
+		Block *nextBlock = head.getBlock()->getNext();
+
+		/*
+		 * skip protected sections which begin after where the head
+		 * already was
+		 */
+		while (nextBlock->protectionLength == 1) {
+			/*
+			 * If the end of the current section is 'underneath'
+			 * another section, we can always skip the 'covering' 
+			 * section as it is guaranteed to have come after. We
+			 * keep skipping until the end block of a skipped
+			 * section is not 'covered' by an earlier section, at
+			 * which point the next block after this is guaranteed
+			 * to be either of a protected section started before
+			 * the entry to the above if-statement (job done), the
+			 * start of a new protected section (handled by outer
+			 * while-loop), or unprotected (job done)
+			 */
+			while (nextBlock->protectionStartEndPtr
+				       ->protectionStartEndPtr != nextBlock) {
+				nextBlock = nextBlock->protectionStartEndPtr
+						    ->protectionStartEndPtr;
+			}
+			nextBlock = nextBlock->protectionStartEndPtr->next;
+		}
+
+		while (nextBlock->getPrev() != nullptr) {
+			advanceTailToNextBlock();
+		}
+		while (nextBlock->protectionLength != 0) {
+			if (tail.getBlock() == nextBlock) {
+				while (nextBlock->protectionLength != 0) {
+					nextBlock->logicalPrev = nullptr;
+					nextBlock = nextBlock->getNext();
+				}
+				tail.move(nextBlock, nextBlock->getStartPtr());
+			} else {
+				if (nextBlock->protectionLength == 1 &&
+				    nextBlock->protectionStartEndPtr
+						    ->logicalPrev == nullptr) {
+					nextBlock =
+						nextBlock->protectionStartEndPtr;
+				} else {
+					nextBlock = nextBlock->getNext();
+				}
 			}
 		}
-		nextBlock->setTailPassedYet(false);
-		head.move(nextBlock, nextBlock->getStartPtr());
+		nextBlock->logicalPrev = head.getBlock();
+		head.move(nextBlock, nextBlock->getStartPtr);
 	}
 
 public:
@@ -834,16 +768,17 @@ public:
 			size_t numToRead = count - numRead;
 			/* We only need to worry about the tail being in the 
 			 * same block as the head if it entered before the head
-			 * (from `block->getTailPassedYet()`) and if there isn't
+			 * (and set logicalPrev=nullptr) and if there isn't
 			 * enough space between them for the new data.
 			 */
 			if (tail.getBlock() == head.getBlock() &&
-			    !(head.getBlock()->getTailPassedYet()) &&
+			    (head.getBlock()->logicalPrev != nullptr) &&
 			    tail.getPtr() - head.getPtr() <
 				    (ptrdiff_t)numToRead) {
 				long numToSkip = numToRead - (tail.getPtr() -
 							      head.getPtr());
-				read(nullptr, numToSkip);
+				size_t readCount = read(nullptr, numToSkip);
+				assert(readCount == numToSkip);
 			}
 			size_t spaceLeftInBlock =
 				head.getBlock()->getStartPtr() +
@@ -881,11 +816,11 @@ public:
 		while (numRead < count) {
 			size_t numToRead = count - numRead;
 			/* If the tail is ahead of the head (implied by 
-			 * `!block->getTailPassedYet()`), we can ignore that the
-			 * head and tail are in the same block.
+			 * block.logicalPrev not being nullptr), we can ignore 
+			 * that the head and tail are in the same block.
 			 */
 			if (head.getBlock() == tail.getBlock() &&
-			    tail.getBlock()->getTailPassedYet()) {
+			    tail.getBlock()->logicalPrev != nullptr) {
 				if (head.getPtr() - tail.getPtr() <
 				    (ptrdiff_t)numToRead) {
 					memcpyIfNotNull(
