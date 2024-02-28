@@ -356,6 +356,10 @@ public:
 			this->prev->next = this;
 
 			referencingPtrs = nullptr;
+
+			this->protectionLength = 0;
+			this->totalProtectionLength = 0;
+			this->protectionStartEndPtr = nullptr;
 		}
 
 		~Block()
@@ -613,12 +617,15 @@ private:
 	{
 
 		Block *nextBlock;
-		if (tail.getBlock()->getLogicalNext()->getPrev() ==
-		    tail.getBlock()) {
-			nextBlock = tail.getBlock()->getLogicalNext();
-		} else {
-			nextBlock = tail.getBlock()->getNext();
-		}
+		do {
+			nextBlock = tail.getBlock()->next;
+			// TODO: can maybe do some optimisation with skipping
+			// reserved blocks here. O(num_of_blocks) is probably
+			// pretty fast though unless something insane is
+			// happening though, so not a major issue.
+		} while(nextBlock->logicalPrev != tail.getBlock());
+		nextBlock->logicalPrev = nullptr;
+
 		tail.move(nextBlock, nextBlock->getStartPtr());
 	}
 
@@ -655,9 +662,6 @@ private:
 			nextBlock = nextBlock->protectionStartEndPtr->next;
 		}
 
-		while (nextBlock->getPrev() != nullptr) {
-			advanceTailToNextBlock();
-		}
 		while (nextBlock->protectionLength != 0) {
 			if (tail.getBlock() == nextBlock) {
 				while (nextBlock->protectionLength != 0) {
@@ -677,7 +681,7 @@ private:
 			}
 		}
 		nextBlock->logicalPrev = head.getBlock();
-		head.move(nextBlock, nextBlock->getStartPtr);
+		head.move(nextBlock, nextBlock->getStartPtr());
 	}
 
 public:
@@ -820,7 +824,7 @@ public:
 			 * that the head and tail are in the same block.
 			 */
 			if (head.getBlock() == tail.getBlock() &&
-			    tail.getBlock()->logicalPrev != nullptr) {
+			    tail.getBlock()->logicalPrev == nullptr) {
 				if (head.getPtr() - tail.getPtr() <
 				    (ptrdiff_t)numToRead) {
 					memcpyIfNotNull(

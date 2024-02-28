@@ -9,7 +9,7 @@
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
             "args": [ "--gtest_filter=${input:pickTest}"],
-            "preLaunchTask": "cmake -S . -B build; cmake --build build"
+            "preLaunchTask": "cmake -DCMAKE_BUILD_TYPE=Debug -S . -B build; cmake --build build "
         },
         {
             "type": "cppdbg",
@@ -18,7 +18,7 @@
             "program": "build/tests",
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
-            "preLaunchTask": "cmake -S . -B build; cmake --build build"
+            "preLaunchTask": "cmake -DCMAKE_BUILD_TYPE=Debug -S . -B build; cmake --build build "
         },
         {
             "type": "cppdbg",
