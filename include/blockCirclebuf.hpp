@@ -936,11 +936,14 @@ public:
 				previousInFlow = currentBlock;
 				lengthLeftToProtect -=
 					currentBlock->getLength();
-				if (currentBlock->protectionLength == 0 or
+				reservationCount++;
+				if (currentBlock->protectionLength == 0 ||
 				    currentBlock->protectionLength >
 					    reservationCount) {
+					currentBlock->protectionStartEndPtr =
+						startBlock;
 					currentBlock->protectionLength =
-						++reservationCount;
+						reservationCount;
 				}
 			} else {
 				//skip blocks that aren't part of the current flow
@@ -963,6 +966,26 @@ public:
 
 			currentBlock = currentBlock->getNext();
 		}
+		
+		//TODO: handle dreadful case where end block is start block
+		if (lengthLeftToProtect) {
+			currentBlock->split(currentBlock->getStartPtr() +
+						    lengthLeftToProtect,
+					    *this);
+		}
+		while (inUnwrittenSection &&
+		       currentBlock->logicalPrev != nullptr) {
+			advanceTailToNextBlock();
+		}
+		reservationCount++;
+		if (currentBlock->protectionLength == 0 ||
+		    currentBlock->protectionLength > reservationCount) {
+			currentBlock->protectionStartEndPtr = startBlock;
+			currentBlock->protectionLength = reservationCount;
+		}
+		startBlock->protectionLength = 1;
+		startBlock->totalProtectionLength = reservationCount;
+		startBlock->protectionStartEndPtr = currentBlock;
 	}
 
 	void release(const BCPtr &startPtr) {}
