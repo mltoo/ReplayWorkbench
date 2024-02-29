@@ -623,7 +623,7 @@ private:
 			// reserved blocks here. O(num_of_blocks) is probably
 			// pretty fast though unless something insane is
 			// happening though, so not a major issue.
-		} while(nextBlock->logicalPrev != tail.getBlock());
+		} while (nextBlock->logicalPrev != tail.getBlock());
 		nextBlock->logicalPrev = nullptr;
 
 		tail.move(nextBlock, nextBlock->getStartPtr());
@@ -889,6 +889,83 @@ public:
 		accumulator += b.getPtr() - a.getPtr();
 		return accumulator;
 	}
+
+	void protect(BCPtr &startPtr, const size_t length)
+	{
+		if (startPtr.getBlock()->logicalPrev == nullptr) {
+			throw std::runtime_error(
+				"Tried to reserve section of BlockCirclebuf outside written section!");
+		}
+		Block *startBlock;
+		if (startPtr.getBlock()->protectionLength == 1) {
+			// TODO: handle case where a protected block already
+			// starts here (i.e. insert a shim block)
+		} else {
+			startBlock = startPtr.getBlock();
+		}
+
+		size_t reservationCount = 1;
+		bool inUnwrittenSection = false;
+		size_t lengthLeftToProtect = length;
+		Block *currentBlock = startBlock->getNext();
+		Block *previousInFlow = startBlock;
+		currentBlock->protectionLength = 1;
+		while (currentBlock->logicalPrev != previousInFlow ||
+		       currentBlock->getLength() < lengthLeftToProtect) {
+
+			while (inUnwrittenSection &&
+			       currentBlock->logicalPrev != nullptr) {
+				// if we're already past where the head is, and
+				// there is an active flow (i.e. logicalPrev is
+				// set), this must be the flow from the previous
+				// loop round which the tail hasn't read yet.
+				// Once we've 'reserved' currentBlock for this
+				// protected section (in the 'new' end of the
+				// flow), a future protect() call could not
+				// protect the 'old' data currently here, unless
+				// it allocated some more space for us after its
+				// new section (this would be a pain to do).
+				// Therefore we advance the tail until its out
+				// of the bit we need to reserve, marking it as
+				// effectively 'unwritten' until the head comes
+				// and writes in it.
+				advanceTailToNextBlock();
+			}
+
+			if (currentBlock->logicalPrev == previousInFlow) {
+				previousInFlow = currentBlock;
+				lengthLeftToProtect -=
+					currentBlock->getLength();
+				if (currentBlock->protectionLength == 0 or
+				    currentBlock->protectionLength >
+					    reservationCount) {
+					currentBlock->protectionLength =
+						++reservationCount;
+				}
+			} else {
+				//skip blocks that aren't part of the current flow
+				Block *sectionStartBlock =
+					currentBlock->protectionLength == 1
+						? currentBlock
+						: currentBlock
+							  ->protectionStartEndPtr;
+				reservationCount +=
+					sectionStartBlock->totalProtectionLength;
+				currentBlock =
+					sectionStartBlock->protectionStartEndPtr;
+			}
+
+			if (head.getBlock() == currentBlock) {
+				// see while loop at top of enclosing while loop
+				// for explanation
+				inUnwrittenSection = true;
+			}
+
+			currentBlock = currentBlock->getNext();
+		}
+	}
+
+	void release(const BCPtr &startPtr) {}
 
 	/**
 	 * Get the amount of data in the circlebuf (i.e. distance between head
