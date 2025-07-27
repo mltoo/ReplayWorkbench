@@ -471,7 +471,92 @@ public:
 		 */
 		void split(T *splitPoint, const BlockCirclebuf<T> &circlebuf)
 		{
-			// TODO(AT)
+			assert(splitPoint >= this->blockStart);
+			std::size_t wholeLength{this->blockLength};
+			std::size_t newThisLength{static_cast<std::size_t>(
+				splitPoint - this->blockStart)};
+			std::size_t newBlockLength{wholeLength - newThisLength};
+
+			auto *newBlock{new Block{circlebuf, splitPoint,
+						 newBlockLength}};
+			newBlock->next = this->next;
+			newBlock->prev = this;
+			this->blockLength = newThisLength;
+			newBlock->blockLength = newBlockLength;
+			if (this->next->logicalPrev == this) {
+				this->next->logicalPrev = newBlock;
+			}
+			this->next->prev = newBlock;
+			this->next = newBlock;
+			if (this->protectionLength == 0) {
+				this->next->prev = newBlock;
+				this->next = newBlock;
+			} else {
+				//TODO(AT): write the case where we need to update protected sections containing the new block
+			}
+
+			if (this->logicalPrev != nullptr) {
+				// if logical prev exists to left, but head is
+				// still in first half, the two halves aren't
+				// logically linked UNLESS tail is also in the
+				// first half, and after head, in which case the
+				// previous write still crosses the split point
+				if (circlebuf.head.getBlock() == this &&
+				    circlebuf.head.getPtr() < splitPoint &&
+				    (circlebuf.tail.getBlock() != this ||
+				     circlebuf.tail.getPtr() >= splitPoint)) {
+					newBlock->logicalPrev = nullptr;
+				} else {
+					newBlock->logicalPrev = this;
+				}
+			} else {
+				newBlock->logicalPrev = nullptr;
+			}
+
+			newBlock->logicalNext = this->logicalNext;
+			if (this->logicalNext != nullptr) {
+				// if logical next exists to right, but tail has
+				// passed halfway, the blocks aren't logically
+				// linked UNLESS head is also in the second
+				// half, in which case it has just written over
+				// the split point
+				if (circlebuf.tail.getBlock() == this &&
+				    circlebuf.tail.getPtr() >= splitPoint &&
+				    (circlebuf.head.getBlock() != this ||
+				     circlebuf.head.getPtr() < splitPoint)) {
+					this->logicalNext = nullptr;
+				} else {
+					this->logicalNext = newBlock;
+				}
+			} else {
+				this->logicalNext = nullptr;
+			}
+
+			BCPtr *oldPtrs{this->referencingPtrs};
+			this->referencingPtrs = nullptr;
+			while (oldPtrs != nullptr) {
+				BCPtr *next = oldPtrs->next;
+				oldPtrs->prev = nullptr;
+				if (oldPtrs->getPtr() < splitPoint) {
+					oldPtrs->next = this->referencingPtrs;
+					if (this->referencingPtrs != nullptr) {
+						this->referencingPtrs->prev =
+							oldPtrs;
+					}
+					this->referencingPtrs = oldPtrs;
+				} else {
+					oldPtrs->block = newBlock;
+					oldPtrs->next =
+						newBlock->referencingPtrs;
+					if (newBlock->referencingPtrs !=
+					    nullptr) {
+						newBlock->referencingPtrs->prev =
+							oldPtrs;
+					}
+					newBlock->referencingPtrs = oldPtrs;
+				}
+				oldPtrs = next;
+			}
 		}
 
 		/**
@@ -597,9 +682,9 @@ private:
 	virtual void advanceTailToNextBlock()
 	{
 
-		Block *nextBlock;
+		Block *nextBlock{tail.getBlock()};
 		do {
-			nextBlock = tail.getBlock()->next;
+			nextBlock = nextBlock->next;
 			// TODO: can maybe do some optimisation with skipping
 			// reserved blocks here. O(num_of_blocks) is probably
 			// pretty fast though unless something insane is
@@ -660,6 +745,9 @@ private:
 					nextBlock = nextBlock->getNext();
 				}
 			}
+		}
+		while (nextBlock->logicalPrev != nullptr) {
+			advanceTailToNextBlock();
 		}
 		nextBlock->logicalPrev = head.getBlock();
 		head.move(nextBlock, nextBlock->getStartPtr());
@@ -760,8 +848,11 @@ public:
 			    (head.getBlock()->logicalPrev != nullptr) &&
 			    tail.getPtr() - head.getPtr() <
 				    (ptrdiff_t)numToRead) {
-				long numToSkip = numToRead - (tail.getPtr() -
-							      head.getPtr());
+				auto numToSkip{std::min(
+					head.getBlock()->blockLength -
+						(tail.getPtr() - head.getPtr()),
+					numToRead - (tail.getPtr() -
+						     head.getPtr()))};
 				size_t readCount = read(nullptr, numToSkip);
 				assert(readCount == numToSkip);
 			}
@@ -878,7 +969,8 @@ public:
 	 *	should start
 	 * @param length The length of the new protected section
 	 */
-	void protect(BCPtr const &startPtr, size_t length)
+	std::unique_ptr<ReservationLL> protect(BCPtr const &startPtr,
+					       size_t length)
 	{
 		if (startPtr.getBlock()->logicalPrev == nullptr) {
 			throw std::runtime_error(
@@ -902,16 +994,16 @@ public:
 						     0, startPtr.getBlock());
 			shimBlock->logicalPrev =
 				startPtr.getBlock()->logicalPrev;
-			startPtr().getBlock()->logicalPrev = shimBlock;
+			startPtr.getBlock()->logicalPrev = shimBlock;
 			startBlock = shimBlock;
 		} else {
 			//start ptr is already the start of an unprotected block
 			startBlock = startPtr.getBlock();
 		}
 
-		auto protectedSections =
-			std::make_unique<ReservationLL>({startBlock, nullptr});
-		ReservationLL *currentPS = protectedSections;
+		std::unique_ptr<ReservationLL> protectedSections{
+			new ReservationLL{startBlock, nullptr}};
+		ReservationLL *currentPS = protectedSections.get();
 
 		size_t lengthLeftToProtect = length;
 		// iterates for each contiguous PS which needs to be created to
@@ -925,9 +1017,12 @@ public:
 				static_assert(!std::is_signed_v<
 					      decltype(currentBlock
 							       ->protectionLength)>);
-				currentBlock->protectionLength = std::min(
-					protectionLength,
-					currentBlock->protectionLength - 1)++;
+				currentBlock->protectionLength =
+					std::min(
+						protectionLength++,
+						currentBlock->protectionLength -
+							1) +
+					1;
 
 				if (currentBlock->protectionLength ==
 				    protectionLength) {
@@ -942,7 +1037,7 @@ public:
 					currentBlock->split(
 						currentBlock->getStartPtr() +
 							lengthLeftToProtect,
-						this);
+						*this);
 				}
 
 				// Block is precisely the right size (possibly
@@ -975,8 +1070,6 @@ public:
 				currentPS->startBlock;
 			currentPS->startBlock->protectionStartEndPtr =
 				currentBlock;
-			currentPS->startBlock->totalProtectionLength =
-				protectionLength;
 
 			// At this point, either we're completely done, or we
 			// need to find a start point for a new PS to continue
@@ -988,9 +1081,10 @@ public:
 			// if a previous P.S. has already marked out a next
 			// block, we have to use the same one
 			if (currentBlock->reservationContinuation != nullptr) {
-				currentPS->next = std::make_unique(
-					{currentBlock->reservationContinuation,
-					 nullptr});
+				currentPS->next = std::unique_ptr<
+					ReservationLL>(new ReservationLL{
+					currentBlock->reservationContinuation,
+					nullptr});
 			} else { // find the next unprotected block
 				Block *nextBlock{currentBlock};
 				while (nextBlock->protectionLength != 0) {
@@ -1014,14 +1108,29 @@ public:
 				currentBlock = nextBlock;
 			}
 		}
+		return protectedSections;
 	}
 
-	void release(ReservationLL &startPtr) {}
+	void release(std::unique_ptr<ReservationLL> reservation)
+	{
+		while (reservation != nullptr) {
+			Block *startBlock{reservation->startBlock};
+			Block *containingSection{startBlock->prev};
+			size_t precedeAmount{1};
+			if (containingSection->protectionLength > 1) {
+				precedeAmount =
+					containingSection->protectionLength;
+				containingSection =
+					containingSection->protectionStartEndPtr;
+			}
+		}
+	}
 
 	void release(BCPtr &startPtr)
 	{
 		Block *firstBlock{startPtr.getBlock()};
 		Block *lastBlock{firstBlock->protectionStartEndPtr};
+		size_t originalLength{firstBlock->totalProtectionLength};
 		// the newest PS which may overlap the current block
 		Block *overridePS;
 		// distance between override and current block
@@ -1148,8 +1257,11 @@ public:
 					lastBlock;
 		}
 
-		Block* firstBlockNewPS = firstBlock->protectionStartEndPtr;
-		Block* lastBlockNewPS = lastBlock->protectionStartEndPtr;
+		Block *firstBlockNewPS{firstBlock->protectionStartEndPtr};
+		Block *lastBlockNewPS{
+			lastBlock->protectionLength == 1
+				? lastBlock
+				: lastBlock->protectionStartEndPtr};
 		currentBlock = firstMergeEligbility ? firstBlock : lastBlock;
 	}
 
