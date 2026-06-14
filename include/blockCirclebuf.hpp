@@ -8,7 +8,6 @@
 #include <stdexcept>
 #include <vector>
 #include <assert.h>
-#include <string.h>
 
 namespace ReplayWorkbench {
 
@@ -492,7 +491,62 @@ public:
 				this->next->prev = newBlock;
 				this->next = newBlock;
 			} else {
-				//TODO(AT): write the case where we need to update protected sections containing the new block
+				//TODO(AT): Write and run tests for this
+				Block *currentPS{this->protectionStartEndPtr};
+				auto currentDist{this->protectionLength + 1};
+				Block *currentBlock{this->next};
+				do {
+					currentPS->totalProtectionLength += 1;
+
+					//iterate from the current block to the
+					//end of the current protected section,
+					//bumping the running protection length
+					//counter to represent the new
+					//protection length
+					while (currentDist <=
+					       currentPS->totalProtectionLength) {
+						if (currentBlock
+							    ->protectionStartEndPtr ==
+						    currentPS) {
+
+							currentBlock
+								->protectionLength++;
+						} else {
+							//skip to the end of this higher-priority PS
+							Block *higherPS =
+								currentBlock->protectionLength ==
+										1
+									? currentBlock
+									: currentBlock
+										  ->protectionStartEndPtr;
+							currentDist +=
+								(higherPS->totalProtectionLength -
+								 currentBlock
+									 ->protectionLength);
+							currentDist++; //1 more for the ->next below
+
+							currentBlock =
+								higherPS->protectionStartEndPtr
+									->next;
+						}
+						currentBlock =
+							currentBlock->next;
+					}
+
+					//move to the next surrounding PS
+					currentPS = currentPS->prev;
+					currentDist++;
+
+					if (currentPS->protectionLength != 1) {
+						currentDist +=
+							(currentPS->protectionLength -
+							 1);
+						currentPS =
+							currentPS
+								->protectionStartEndPtr;
+					}
+
+				} while (currentPS != nullptr);
 			}
 
 			if (this->logicalPrev != nullptr) {
