@@ -15,9 +15,9 @@ namespace ReplayWorkbench {
  * Circular-buffer-like datastructure, but where the buffer is split across 
  * several `blocks' (which may be non-contiguous) which can be further logically
  * subdivided in O(1) at any time. Blocks may be temporarily excluded from the
- * chain, to be merged back in at a later time
+ * chain, to be merged back in at a later time.
  *
- * @tparam T The type of object the `BlockCirclebuf<T>` will contain
+ * @tparam T The type of object the `BlockCirclebuf<T>` will contain.
  */
 template<typename T> class BlockCirclebuf {
 public:
@@ -36,11 +36,9 @@ public:
 		T *getAllocationStart() { return allocationStart; }
 
 		/**
-		 * Initialised a superblock around an allocated section of
-		 * memory
+		 * Initialised a superblock around an allocated section of memory.
 		 *
-		 * @param allocationStart The start of the allocated section of
-		 *	memory.
+		 * @param allocationStart The start of the allocated section of memory.
 		 */
 		SuperblockAllocation(const size_t size) noexcept
 			: allocationStart([size]() {
@@ -60,15 +58,13 @@ public:
 			other.allocationStart = nullptr;
 		}
 
-		SuperblockAllocation &
-		operator=(SuperblockAllocation &&other) noexcept
+		SuperblockAllocation &operator=(SuperblockAllocation &&other) noexcept
 		{
 			this->allocationStart = other.allocationStart;
 			other.allocationStart = nullptr;
 		}
 
-		SuperblockAllocation &
-		operator=(SuperblockAllocation &other) = delete;
+		SuperblockAllocation &operator=(SuperblockAllocation &other) = delete;
 
 		~SuperblockAllocation()
 		{
@@ -79,10 +75,10 @@ public:
 	};
 
 	/**
-	 * Pointer to a position in the `BlockCirclebuf`. Also forms a linked
-	 * list of `BCPtrs` in the same block, so all referring pointers can be
-	 * updated when the block is split or merged with another, to refer to
-	 * the new block instead
+	 * Pointer to a position in the `BlockCirclebuf`. Also forms a linked list
+     * of `BCPtrs` in the same block, so all referring pointers can be updated
+     * when the block is split or merged with another, to refer to the new
+     * block instead.
 	 */
 	class BCPtr {
 		friend class Block;
@@ -97,25 +93,18 @@ public:
 		/**
 		 * Create a 'blank' `BCPtr`.
 		 */
-		BCPtr()
-			: block(nullptr),
-			  ptr(nullptr),
-			  next(nullptr),
-			  prev(nullptr)
-		{
-		}
+		BCPtr() : block(nullptr), ptr(nullptr), next(nullptr), prev(nullptr) {}
 
 		/**
-		 * Create a `BCPtr` at a certain position in a block
+		 * Create a `BCPtr` at a certain position in a block.
 		 *
-		 * @param block The block this `BCPtr` points to
-		 * @param ptr The position within the block this `BCPtr` points
-		 *	to
+		 * @param block The block this `BCPtr` points to.
+		 * @param ptr The position within the block this `BCPtr` points to.
 		 */
 		BCPtr(Block *block, T *ptr)
 		{
 			if (ptr < block->getStartPtr() ||
-			    ptr >= block->getStartPtr() + block->getLength())
+				ptr >= block->getStartPtr() + block->getLength())
 				throw std::out_of_range(
 					"Initialising a BCPtr out of range of the provided block");
 
@@ -130,13 +119,11 @@ public:
 		}
 
 		/**
-		 * Create a `BCPtr`, copying from another `BCPtr`
+		 * Create a `BCPtr`, copying from another `BCPtr`.
 		 *
-		 * @param copy The `BCPtr` to copy from
+		 * @param copy The `BCPtr` to copy from.
 		 */
-		BCPtr(const BCPtr &copy) noexcept : BCPtr(copy.block, copy.ptr)
-		{
-		}
+		BCPtr(const BCPtr &copy) noexcept : BCPtr(copy.block, copy.ptr) {}
 
 		BCPtr(BCPtr &&other) noexcept
 		{
@@ -157,7 +144,7 @@ public:
 		}
 
 		/**
-		 * Destroy a `BCPtr` and remove it from its linked list
+		 * Destroy a `BCPtr` and remove it from its linked list.
 		 */
 		~BCPtr() noexcept
 		{
@@ -170,10 +157,9 @@ public:
 		}
 
 		/**
-		 * Copy one `BCPtr` into another, keeping linked lists up-to-
-		 * date
+		 * Copy one `BCPtr` into another, keeping linked lists up-to-date.
 		 *
-		 * @param other The `BCPtr` to copy from
+		 * @param other The `BCPtr` to copy from.
 		 */
 		BCPtr &operator=(const BCPtr &other) noexcept
 		{
@@ -188,8 +174,7 @@ public:
 				this->prev = nullptr;
 				this->next = other.block->referencingPtrs;
 				if (other.block->referencingPtrs)
-					other.block->referencingPtrs->prev =
-						this;
+					other.block->referencingPtrs->prev = this;
 				other.block->referencingPtrs = this;
 				this->block = other.block;
 			}
@@ -202,7 +187,7 @@ public:
 		/**
 		 * Assign to a BCPtr with move semantics.
 		 *
-		 * @param other Reference to an rvalue BCPtr to move from
+		 * @param other Reference to an rvalue BCPtr to move from.
 		 */
 		BCPtr &operator=(BCPtr &&other) noexcept
 		{
@@ -213,16 +198,13 @@ public:
 				if (this->prev) {
 					this->prev->next = this->next;
 				}
-				if (this->block &&
-				    this->block->referencingPtrs == this) {
-					this->block->referencingPtrs =
-						this->next;
+				if (this->block && this->block->referencingPtrs == this) {
+					this->block->referencingPtrs = this->next;
 				}
 				this->next = other.next;
 				this->prev = other.prev;
 				this->block = other.block;
-				if (this->block &&
-				    this->block->referencingPtrs == &other) {
+				if (this->block && this->block->referencingPtrs == &other) {
 					this->block->referencingPtrs = this;
 				}
 				if (this->next) {
@@ -235,8 +217,7 @@ public:
 				if (other.prev) {
 					other.prev->next = other.next;
 				} else {
-					other.block->referencingPtrs =
-						other.next;
+					other.block->referencingPtrs = other.next;
 				}
 				if (other.next) {
 					other.next->prev = other.prev;
@@ -258,18 +239,18 @@ public:
 		Block *getBlock() const noexcept { return block; }
 
 		/**
-		 * Return the point within a block this `BCPtr` points to
+		 * Return the point within a block this `BCPtr` points to.
 		 *
-		 * @return The specific pointer this `BCPtr` points to
+		 * @return The specific pointer this `BCPtr` points to.
 		 */
 		T *getPtr() const noexcept { return ptr; }
 
 		/**
 		 * Move this BCPtr to a new location
 		 *
-		 * @param newBlock The block this `BCPtr` should now point to
-		 * @param newPoint The pointer to the specific element this
-		 *	`BCPtr` should now point to
+		 * @param newBlock The block this `BCPtr` should now point to.
+		 * @param newPoint The pointer to the specific element this `BCPtr`
+         * should now point to.
 		 */
 		void move(Block *newBlock, T *newPos)
 		{
@@ -279,16 +260,14 @@ public:
 			// assert pointer is in range for new block
 			assert(!newBlock || newPos >= newBlock->getStartPtr());
 			assert(!newBlock ||
-			       newPos < newBlock->getStartPtr() +
-						newBlock->getLength());
+				   newPos < newBlock->getStartPtr() + newBlock->getLength());
 
 			this->ptr = newPos;
 
 			//update block and ref list if necessary
 			if (this->block != newBlock) {
 				if (this->prev == nullptr) {
-					this->block->referencingPtrs =
-						this->next;
+					this->block->referencingPtrs = this->next;
 				} else {
 					this->prev->next = this->next;
 				}
@@ -308,9 +287,9 @@ public:
 		}
 	};
 
-	// The idea with this is that reservations should be contiguous,
-	// so we'd do several reservations in an LL to be able to do
-	// non-contiguous protections.
+	// The idea with this is that reservations should be contiguous, so we'd do
+	// several reservations in an LL to be able to do non-contiguous
+	// protections.
 	struct ReservationLL {
 		Block *startBlock;
 		std::unique_ptr<ReservationLL> next = nullptr;
@@ -322,8 +301,8 @@ public:
 
 	private:
 		/**
-		 * Pointer to a section of memory in which this `Block`'s data
-		 * are stored.
+		 * Pointer to a section of memory in which this `Block`'s data are
+         * stored.
 		 */
 		T *blockStart;
 
@@ -335,14 +314,13 @@ public:
 
 		/**
 		 * The `Block` which 'physically' follows this one in the data
-		 * structure. If there is only one memory allocation in use,
-		 * `next`'s pointer literally follows this `Block`'s memory (or
-		 * wraps round to the start of the allocation to complete the
-		 * circular structure), but this may point to some other memory.
-		 * The physical arrangement of the memory is abstracted from the
-		 * user; this member is to help with freeing structures on
-		 * deconstruction and determining when two logical `Block`s can
-		 * be merged
+		 * structure. If there is only one memory allocation in use, `next`'s
+         * pointer literally follows this `Block`'s memory (or wraps round to
+         * the start of the allocation to complete the circular structure), but
+         * this may point to some other memory. The physical arrangement of
+         * the memory is abstracted from the user; this member is to help with
+         * freeing structures on deconstruction and determining when two
+         * logical `Block`s can be merged.
 		 */
 		Block *next;
 
@@ -354,70 +332,70 @@ public:
 
 		/**
 		 * The block which comes before the current one in the 'flow' of
-		 * written blocks. Set to {@code nullptr} if this block has not
-		 * yet begun to be written.
+         * written blocks. Set to {@code nullptr} if this block has not yet
+         * begun to be written.
 		 */
 		Block *logicalPrev;
 		/**
-		 * The block which comes after the current one in the 'flow' of
-		 * written blocks. Set to {@code nullptr} if this block is not
-		 * yet fully written.
+		 * The block which comes after the current one in the 'flow' of written
+         * blocks. Set to {@code nullptr} if this block is not yet fully
+         * written.
 		 */
 		Block *logicalNext;
 
 		/**
-		 * Pointer to the `Block` at the end of the highest-priority
-		 * protected section containing this `Block` if this `Block` is
-		 * the first `Block` of that P.S., otherwise points to
-		 * the `Block` at the start of that P.S.
+		 * Pointer to the `Block` at the end of the highest-priority protected
+         * section containing this `Block` if this `Block` is the first `Block`
+         * of that P.S., otherwise points to the `Block` at the start of that
+         * P.S.
 		 */
 		Block *protectionStartEndPtr;
 
 		/**
 		 * The number of blocks which precede this one in the containing
-		 * protected section. Starts at 1 for the beginning of a
-		 * protected section. Set to 0 for unprotected blocks. If the
-		 * block is within several overlapping protected sections, set
-		 * to the lowest value for any of those sections.
-		 * Note that this is only for a *contiguous* protected section
+		 * protected section. Starts at 1 for the beginning of a protected
+         * section. Set to 0 for unprotected blocks. If the block is within
+         * several overlapping protected sections, set to the lowest value for
+         * any of those sections.
+         *
+		 * Note that this is only for a *contiguous* protected section.
 		 */
 		size_t protectionLength;
 
 		/**
-		 * The total length of the protected section. Only valid on the
-		 * first block of the P.S.
+		 * The total length of the protected section. Only valid on the first
+         * block of the P.S.
 		 */
 		size_t totalProtectionLength;
 
 		/**
-		 * If this block is at the end of a protected section, which is
-		 * not at the end of its containing super-protected-section
-		 * (non-contiguous P.S.), this points to the block at the start
-		 * of the next P.S. in the super-P.S.
+		 * If this block is at the end of a protected section, which is not at
+         * the end of its containing super-protected-section (non-contiguous
+         * P.S.), this points to the block at the start of the next P.S. in the
+         * super-P.S.
 		 */
 		Block *reservationContinuation;
 
 		/**
-		 * Pointer to the first `BCPtr` in the LL of `BCPtr`s which
-		 * reference this `Block`. Allows all referencing `BCPtr`s to be
-		 * updated if this `Block` gets merged/deleted/split/etc.
+		 * Pointer to the first `BCPtr` in the LL of `BCPtr`s which reference
+         * this `Block`. Allows all referencing `BCPtr`s to be updated if this
+         * `Block` gets merged/deleted/split/etc.
 		 */
 		BCPtr *referencingPtrs;
 
 		/**
-		 * Construct a block before an existing block. Preferably
-		 * blocks should only be made before data is written or any
-		 * blocks are split, otherwise this probably needs re-writing
+		 * Construct a block before an existing block. Preferably blocks should
+         * only be made before data is written or any blocks are split,
+         * otherwise this probably needs re-writing
 		 *
-		 * @param parentContainer The `BlockCirclebuf` containing
-		 *	this `Block`
-		 * @param blockStart Pointer to where this block should start
-		 * @param blockLength The length of the block, as a number
-		 *	of `T` objects it can contain
-		 * @param next The block which should follow the new block
+		 * @param parentContainer The `BlockCirclebuf` containing this `Block`.
+		 * @param blockStart Pointer to where this block should start.
+		 * @param blockLength The length of the block, as a number of `T`
+         * objects it can contain.
+		 * @param next The block which should follow the new block.
 		 */
 		Block(const BlockCirclebuf<T> &parentContainer, T *blockStart,
-		      size_t blockLength, Block *next) noexcept
+			  size_t blockLength, Block *next) noexcept
 		{
 			this->blockStart = blockStart;
 			this->blockLength = blockLength;
@@ -460,24 +438,22 @@ public:
 		Block *operator=(const Block &&other) = delete;
 
 		/**
-		 * Split the block in two at a certain point. The new block
-		 * will become this block's `next` block, which will have
-		 * `splitPoint` as its start pointer.
+		 * Split the block in two at a certain point. The new block will become
+         * this block's `next` block, which will have `splitPoint` as its start
+         * pointer.
 		 *
-		 * @param splitPoint The point at which the block should be
-		 *	split
+		 * @param splitPoint The point at which the block should be split
 		 * @param circlebuf The BlockCirclebuf containing this block
 		 */
 		void split(T *splitPoint, const BlockCirclebuf<T> &circlebuf)
 		{
 			assert(splitPoint >= this->blockStart);
 			std::size_t wholeLength{this->blockLength};
-			std::size_t newThisLength{static_cast<std::size_t>(
-				splitPoint - this->blockStart)};
+			std::size_t newThisLength{
+				static_cast<std::size_t>(splitPoint - this->blockStart)};
 			std::size_t newBlockLength{wholeLength - newThisLength};
 
-			auto *newBlock{new Block{circlebuf, splitPoint,
-						 newBlockLength}};
+			auto *newBlock{new Block{circlebuf, splitPoint, newBlockLength}};
 			newBlock->next = this->next;
 			newBlock->prev = this;
 			this->blockLength = newThisLength;
@@ -498,67 +474,49 @@ public:
 				do {
 					currentPS->totalProtectionLength += 1;
 
-					//iterate from the current block to the
-					//end of the current protected section,
-					//bumping the running protection length
-					//counter to represent the new
-					//protection length
-					while (currentDist <=
-					       currentPS->totalProtectionLength) {
-						if (currentBlock
-							    ->protectionStartEndPtr ==
-						    currentPS) {
-
-							currentBlock
-								->protectionLength++;
+					// iterate from the current block to the end of the current
+					// protected section, bumping the running protection length
+					// counter to represent the new protection length
+					while (currentDist <= currentPS->totalProtectionLength) {
+						if (currentBlock->protectionStartEndPtr == currentPS) {
+							currentBlock->protectionLength++;
 						} else {
-							//skip to the end of this higher-priority PS
+							// skip to the end of this higher-priority PS
 							Block *higherPS =
-								currentBlock->protectionLength ==
-										1
+								currentBlock->protectionLength == 1
 									? currentBlock
-									: currentBlock
-										  ->protectionStartEndPtr;
-							currentDist +=
-								(higherPS->totalProtectionLength -
-								 currentBlock
-									 ->protectionLength);
+									: currentBlock->protectionStartEndPtr;
+							currentDist += (higherPS->totalProtectionLength -
+											currentBlock->protectionLength);
 							currentDist++; //1 more for the ->next below
 
 							currentBlock =
-								higherPS->protectionStartEndPtr
-									->next;
+								higherPS->protectionStartEndPtr->next;
 						}
-						currentBlock =
-							currentBlock->next;
+						currentBlock = currentBlock->next;
 					}
 
-					//move to the next surrounding PS
+					// move to the next surrounding PS
 					currentPS = currentPS->prev;
 					currentDist++;
 
 					if (currentPS->protectionLength != 1) {
-						currentDist +=
-							(currentPS->protectionLength -
-							 1);
-						currentPS =
-							currentPS
-								->protectionStartEndPtr;
+						currentDist += (currentPS->protectionLength - 1);
+						currentPS = currentPS->protectionStartEndPtr;
 					}
 
 				} while (currentPS != nullptr);
 			}
 
 			if (this->logicalPrev != nullptr) {
-				// if logical prev exists to left, but head is
-				// still in first half, the two halves aren't
-				// logically linked UNLESS tail is also in the
-				// first half, and after head, in which case the
+				// if logical prev exists to left, but head is still in first
+				// half, the two halves aren't logically linked UNLESS tail is
+				// also in the first half, and after head, in which case the
 				// previous write still crosses the split point
 				if (circlebuf.head.getBlock() == this &&
-				    circlebuf.head.getPtr() < splitPoint &&
-				    (circlebuf.tail.getBlock() != this ||
-				     circlebuf.tail.getPtr() >= splitPoint)) {
+					circlebuf.head.getPtr() < splitPoint &&
+					(circlebuf.tail.getBlock() != this ||
+					 circlebuf.tail.getPtr() >= splitPoint)) {
 					newBlock->logicalPrev = nullptr;
 				} else {
 					newBlock->logicalPrev = this;
@@ -569,15 +527,14 @@ public:
 
 			newBlock->logicalNext = this->logicalNext;
 			if (this->logicalNext != nullptr) {
-				// if logical next exists to right, but tail has
-				// passed halfway, the blocks aren't logically
-				// linked UNLESS head is also in the second
-				// half, in which case it has just written over
-				// the split point
+				// if logical next exists to right, but tail has passed halfway,
+				// the blocks aren't logically linked UNLESS head is also in the
+				// second half, in which case it has just written over the split
+				// point
 				if (circlebuf.tail.getBlock() == this &&
-				    circlebuf.tail.getPtr() >= splitPoint &&
-				    (circlebuf.head.getBlock() != this ||
-				     circlebuf.head.getPtr() < splitPoint)) {
+					circlebuf.tail.getPtr() >= splitPoint &&
+					(circlebuf.head.getBlock() != this ||
+					 circlebuf.head.getPtr() < splitPoint)) {
 					this->logicalNext = nullptr;
 				} else {
 					this->logicalNext = newBlock;
@@ -594,18 +551,14 @@ public:
 				if (oldPtrs->getPtr() < splitPoint) {
 					oldPtrs->next = this->referencingPtrs;
 					if (this->referencingPtrs != nullptr) {
-						this->referencingPtrs->prev =
-							oldPtrs;
+						this->referencingPtrs->prev = oldPtrs;
 					}
 					this->referencingPtrs = oldPtrs;
 				} else {
 					oldPtrs->block = newBlock;
-					oldPtrs->next =
-						newBlock->referencingPtrs;
-					if (newBlock->referencingPtrs !=
-					    nullptr) {
-						newBlock->referencingPtrs->prev =
-							oldPtrs;
+					oldPtrs->next = newBlock->referencingPtrs;
+					if (newBlock->referencingPtrs != nullptr) {
+						newBlock->referencingPtrs->prev = oldPtrs;
 					}
 					newBlock->referencingPtrs = oldPtrs;
 				}
@@ -614,16 +567,14 @@ public:
 		}
 
 		/**
-		 * Split the block in two at a certain point. The new block
-		 * will become this block's `next` block, which will have
-		 * `splitPoint` as its start pointer.
+		 * Split the block in two at a certain point. The new block will become
+         * this block's `next` block, which will have `splitPoint` as its start
+         * pointer.
 		 *
-		 * @param splitPoint The point at which the block should be
-		 *	split
+		 * @param splitPoint The point at which the block should be split
 		 * @param circlebuf The BlockCirclebuf containing this block
 		 */
-		void split(const BCPtr &splitPoint,
-			   const BlockCirclebuf<T> &circlebuf)
+		void split(const BCPtr &splitPoint, const BlockCirclebuf<T> &circlebuf)
 		{
 			if (splitPoint.block != this)
 				throw std::runtime_error(
@@ -632,8 +583,8 @@ public:
 		}
 
 		/**
-		 * Get the length of the block's memory region, as a number of 
-		 * `T` objects.
+		 * Get the length of the block's memory region, as a number of `T`
+         * objects.
 		 *
 		 * @return The length of the block's memory region, as a number
 		 *	of `T` objects.
@@ -652,10 +603,7 @@ public:
 		 *
 		 * @return A pointer to the last {@code T} object in this block
 		 */
-		T *getEndPtr() const noexcept
-		{
-			return getStartPtr() + getLength();
-		}
+		T *getEndPtr() const noexcept { return getStartPtr() + getLength(); }
 
 		/**
 		 * Get the current block's next block.
@@ -672,8 +620,8 @@ public:
 		Block *getPrev() const noexcept { return prev; }
 
 		/**
-		 * Attempt to merge a block with the next block. Intended
-		 * for use after removing read/write protection from a block.
+		 * Attempt to merge a block with the next block. Intended for use after
+         * removing read/write protection from a block.
 		 *
 		 * @return Whether or not the merge was able to be completed
 		 */
@@ -684,8 +632,8 @@ public:
 		}
 
 		/**
-		 * Attempt to merge a block with the next block. Intended
-		 * for use after removing read/write protection from a block.
+		 * Attempt to merge a block with the next block. Intended for use after
+         * removing read/write protection from a block.
 		 *
 		 * @return Whether or not the merge was able to be completed
 		 */
@@ -697,15 +645,15 @@ public:
 
 	private:
 		/**
-		 * Initialise a block with itself as its next and previous.
-		 * Intended for starting a new BlockCirclebuf/superblock.
+		 * Initialise a block with itself as its next and previous. Intended
+         * for starting a new BlockCirclebuf/superblock.
 		 *
 		 * @param blockStart Pointer to where the new block will start 
 		 * @param blockLength The number of `T` objects the block 
 		 *	will contain
 		 */
 		Block(const BlockCirclebuf &parentContainer, T *blockStart,
-		      size_t blockLength) noexcept
+			  size_t blockLength) noexcept
 			: Block(parentContainer, blockStart, blockLength, this)
 		{
 		}
@@ -717,8 +665,8 @@ private:
 	BCPtr tail;
 
 	/**
-	 * Allocate a superblock, disconnected from any other existing 
-	 * superblocks. The first block will have itself as next and previous.
+	 * Allocate a superblock, disconnected from any other existing superblocks.
+     * The first block will have itself as next and previous.
 	 *
 	 * @param size The size of the new superblock
 	 * @return The first block of the new superblock
@@ -774,10 +722,10 @@ private:
 			 * start of a new protected section (handled by outer
 			 * while-loop), or unprotected (job done)
 			 */
-			while (nextBlock->protectionStartEndPtr
-				       ->protectionStartEndPtr != nextBlock) {
-				nextBlock = nextBlock->protectionStartEndPtr
-						    ->protectionStartEndPtr;
+			while (nextBlock->protectionStartEndPtr->protectionStartEndPtr !=
+				   nextBlock) {
+				nextBlock =
+					nextBlock->protectionStartEndPtr->protectionStartEndPtr;
 			}
 			nextBlock = nextBlock->protectionStartEndPtr->next;
 		}
@@ -791,10 +739,8 @@ private:
 				tail.move(nextBlock, nextBlock->getStartPtr());
 			} else {
 				if (nextBlock->protectionLength == 1 &&
-				    nextBlock->protectionStartEndPtr
-						    ->logicalPrev == nullptr) {
-					nextBlock =
-						nextBlock->protectionStartEndPtr;
+					nextBlock->protectionStartEndPtr->logicalPrev == nullptr) {
+					nextBlock = nextBlock->protectionStartEndPtr;
 				} else {
 					nextBlock = nextBlock->getNext();
 				}
@@ -819,9 +765,8 @@ public:
 			  superblockAllocations.emplace_back(size);
 			  return BCPtr(
 				  new Block(*this,
-					    superblockAllocations[0]
-						    .getAllocationStart(),
-					    size),
+							superblockAllocations[0].getAllocationStart(),
+							size),
 				  superblockAllocations[0].getAllocationStart());
 		  }()),
 		  tail(BCPtr(head.getBlock(), head.getPtr()))
@@ -834,8 +779,7 @@ public:
 		while (currentBlock) {
 			Block *nextBlock = currentBlock->getNext();
 			delete currentBlock;
-			currentBlock = nextBlock == currentBlock ? nullptr
-								 : nextBlock;
+			currentBlock = nextBlock == currentBlock ? nullptr : nextBlock;
 		}
 	}
 
@@ -847,13 +791,11 @@ public:
 		while (currentBlock) {
 			Block *nextBlock = currentBlock->getNext();
 			delete currentBlock;
-			currentBlock = nextBlock == currentBlock ? nullptr
-								 : nextBlock;
+			currentBlock = nextBlock == currentBlock ? nullptr : nextBlock;
 		}
 		this->tail = std::move(other.tail);
 		this->head = std::move(other.head);
-		this->superblockAllocations =
-			std::move(other.superblockAllocations);
+		this->superblockAllocations = std::move(other.superblockAllocations);
 		return *this;
 	}
 
@@ -871,11 +813,10 @@ public:
 		T *allocation = (T *)malloc(size * sizeof(T));
 		if (!allocation)
 			throw std::bad_alloc();
-		superblockAllocations.push_back(
-			SuperblockAllocation(allocation));
+		superblockAllocations.push_back(SuperblockAllocation(allocation));
 		SuperblockAllocation &alloc = superblockAllocations.back();
-		Block *firstBlock = new Block(*alloc, alloc.allocationStart,
-					      size, prev, next);
+		Block *firstBlock =
+			new Block(*alloc, alloc.allocationStart, size, prev, next);
 		prev->next = firstBlock;
 		next->prev = firstBlock;
 	}
@@ -899,29 +840,24 @@ public:
 			 * enough space between them for the new data.
 			 */
 			if (tail.getBlock() == head.getBlock() &&
-			    (head.getBlock()->logicalPrev != nullptr) &&
-			    tail.getPtr() - head.getPtr() <
-				    (ptrdiff_t)numToRead) {
-				auto numToSkip{std::min(
-					head.getBlock()->blockLength -
-						(tail.getPtr() - head.getPtr()),
-					numToRead - (tail.getPtr() -
-						     head.getPtr()))};
+				(head.getBlock()->logicalPrev != nullptr) &&
+				tail.getPtr() - head.getPtr() < (ptrdiff_t)numToRead) {
+				auto numToSkip{
+					std::min(head.getBlock()->blockLength -
+								 (tail.getPtr() - head.getPtr()),
+							 numToRead - (tail.getPtr() - head.getPtr()))};
 				size_t readCount = read(nullptr, numToSkip);
 				assert(readCount == numToSkip);
 			}
-			size_t spaceLeftInBlock =
-				head.getBlock()->getStartPtr() +
-				head.getBlock()->getLength() - head.getPtr();
+			size_t spaceLeftInBlock = head.getBlock()->getStartPtr() +
+									  head.getBlock()->getLength() -
+									  head.getPtr();
 			if (numToRead < spaceLeftInBlock) {
-				memcpy(head.getPtr(), input + numRead,
-				       numToRead);
-				head.move(head.getBlock(),
-					  head.getPtr() + numToRead);
+				memcpy(head.getPtr(), input + numRead, numToRead);
+				head.move(head.getBlock(), head.getPtr() + numToRead);
 				return;
 			} else {
-				memcpy(head.getPtr(), input + numRead,
-				       spaceLeftInBlock);
+				memcpy(head.getPtr(), input + numRead, spaceLeftInBlock);
 				numRead += spaceLeftInBlock;
 				this->advanceHeadToNextBlock();
 			}
@@ -950,38 +886,29 @@ public:
 			 * that the head and tail are in the same block.
 			 */
 			if (head.getBlock() == tail.getBlock() &&
-			    tail.getBlock()->logicalPrev == nullptr) {
-				if (head.getPtr() - tail.getPtr() <
-				    (ptrdiff_t)numToRead) {
-					memcpyIfNotNull(
-						buffer + numRead, tail.getPtr(),
-						head.getPtr() - tail.getPtr());
-					numRead +=
-						head.getPtr() - tail.getPtr();
-					tail.move(tail.getBlock(),
-						  head.getPtr());
+				tail.getBlock()->logicalPrev == nullptr) {
+				if (head.getPtr() - tail.getPtr() < (ptrdiff_t)numToRead) {
+					memcpyIfNotNull(buffer + numRead, tail.getPtr(),
+									head.getPtr() - tail.getPtr());
+					numRead += head.getPtr() - tail.getPtr();
+					tail.move(tail.getBlock(), head.getPtr());
 					return numRead;
 				} else {
-					memcpyIfNotNull(buffer + numRead,
-							tail.getPtr(),
-							numToRead);
-					tail.move(tail.getBlock(),
-						  tail.getPtr() + numToRead);
+					memcpyIfNotNull(buffer + numRead, tail.getPtr(), numToRead);
+					tail.move(tail.getBlock(), tail.getPtr() + numToRead);
 					return count;
 				}
 			}
-			size_t spaceLeftInBlock =
-				tail.getBlock()->getStartPtr() +
-				tail.getBlock()->getLength() - tail.getPtr();
+			size_t spaceLeftInBlock = tail.getBlock()->getStartPtr() +
+									  tail.getBlock()->getLength() -
+									  tail.getPtr();
 			if (numToRead < spaceLeftInBlock) {
-				memcpyIfNotNull(buffer + numRead, tail.getPtr(),
-						numToRead);
-				tail.move(tail.getBlock(),
-					  tail.getPtr() + numToRead);
+				memcpyIfNotNull(buffer + numRead, tail.getPtr(), numToRead);
+				tail.move(tail.getBlock(), tail.getPtr() + numToRead);
 				return count;
 			} else {
 				memcpyIfNotNull(buffer + numRead, tail.getPtr(),
-						spaceLeftInBlock);
+								spaceLeftInBlock);
 				numRead += spaceLeftInBlock;
 				this->advanceTailToNextBlock();
 			}
@@ -1002,14 +929,13 @@ public:
 		size_t accumulator = 0;
 		BCPtr currentPosn(a);
 		while (currentPosn.getBlock() != b.getBlock() ||
-		       currentPosn.getPtr() < b.getPtr()) {
-			accumulator += (currentPosn.getBlock()->getLength()) -
-				       (currentPosn.getPtr() -
-					currentPosn.getBlock()->getStartPtr());
+			   currentPosn.getPtr() < b.getPtr()) {
+			accumulator +=
+				(currentPosn.getBlock()->getLength()) -
+				(currentPosn.getPtr() - currentPosn.getBlock()->getStartPtr());
 			currentPosn.getPtr() =
 				currentPosn.getBlock()->getNext()->getStartPtr();
-			currentPosn.getBlock() =
-				currentPosn.getBlock()->getNext();
+			currentPosn.getBlock() = currentPosn.getBlock()->getNext();
 		}
 
 		accumulator += b.getPtr() - a.getPtr();
@@ -1023,8 +949,7 @@ public:
 	 *	should start
 	 * @param length The length of the new protected section
 	 */
-	std::unique_ptr<ReservationLL> protect(BCPtr const &startPtr,
-					       size_t length)
+	std::unique_ptr<ReservationLL> protect(BCPtr const &startPtr, size_t length)
 	{
 		if (startPtr.getBlock()->logicalPrev == nullptr) {
 			throw std::runtime_error(
@@ -1037,17 +962,15 @@ public:
 			startPtr.getBlock()->split(startPtr.getPtr(), *this);
 			// BCPtr should have been updated with the new block it
 			// sits in
-			assert(startPtr.getPtr() ==
-			       startPtr.getBlock()->getStartPtr());
+			assert(startPtr.getPtr() == startPtr.getBlock()->getStartPtr());
 			startBlock = startPtr.getBlock();
 		} else if (startPtr.getBlock()->protectionLength == 1) {
 			// block is the start of an existing protected section;
 			// we have to insert a 'shim' block to hold the data of
 			// the new P.S.
-			Block *shimBlock = new Block(*this, startPtr.getPtr(),
-						     0, startPtr.getBlock());
-			shimBlock->logicalPrev =
-				startPtr.getBlock()->logicalPrev;
+			Block *shimBlock =
+				new Block(*this, startPtr.getPtr(), 0, startPtr.getBlock());
+			shimBlock->logicalPrev = startPtr.getBlock()->logicalPrev;
 			startPtr.getBlock()->logicalPrev = shimBlock;
 			startBlock = shimBlock;
 		} else {
@@ -1068,50 +991,39 @@ public:
 			while (lengthLeftToProtect > 0) {
 				// Following hackery depends on protection
 				// length being unsigned, so 0-1 wraps around
-				static_assert(!std::is_signed_v<
-					      decltype(currentBlock
-							       ->protectionLength)>);
+				static_assert(
+					!std::is_signed_v<decltype(currentBlock->protectionLength)>);
 				currentBlock->protectionLength =
-					std::min(
-						protectionLength++,
-						currentBlock->protectionLength -
-							1) +
+					std::min(protectionLength++,
+							 currentBlock->protectionLength - 1) +
 					1;
 
-				if (currentBlock->protectionLength ==
-				    protectionLength) {
-					currentBlock->protectionStartEndPtr =
-						currentPS->startBlock;
+				if (currentBlock->protectionLength == protectionLength) {
+					currentBlock->protectionStartEndPtr = currentPS->startBlock;
 				}
 
 				// Block is strictly greater than we need -
 				// split the bit we need off the front
-				if (currentBlock->blockLength >
-				    lengthLeftToProtect) {
-					currentBlock->split(
-						currentBlock->getStartPtr() +
-							lengthLeftToProtect,
-						*this);
+				if (currentBlock->blockLength > lengthLeftToProtect) {
+					currentBlock->split(currentBlock->getStartPtr() +
+											lengthLeftToProtect,
+										*this);
 				}
 
 				// Block is precisely the right size (possibly
 				// after being split). Return as we're now done
-				if (currentBlock->blockLength ==
-				    lengthLeftToProtect) {
+				if (currentBlock->blockLength == lengthLeftToProtect) {
 					lengthLeftToProtect = 0;
 					break;
 				}
 				// Current block isn't enough, need to continue.
-				lengthLeftToProtect -=
-					currentBlock->blockLength;
+				lengthLeftToProtect -= currentBlock->blockLength;
 
-				if (currentBlock->next ==
-					    currentBlock->logicalNext ||
-				    currentBlock->protectionLength != 1) {
+				if (currentBlock->next == currentBlock->logicalNext ||
+					currentBlock->protectionLength != 1) {
 					// We're allowed into the next
 					// contiguous block
-					currentBlock->logicalNext =
-						currentBlock->next;
+					currentBlock->logicalNext = currentBlock->next;
 					currentBlock = currentBlock->next;
 				} else {
 					// need to add a new non-contiguous P.S.
@@ -1120,10 +1032,8 @@ public:
 			}
 
 			//Close of previous string of protected blocks
-			currentBlock->protectionStartEndPtr =
-				currentPS->startBlock;
-			currentPS->startBlock->protectionStartEndPtr =
-				currentBlock;
+			currentBlock->protectionStartEndPtr = currentPS->startBlock;
+			currentPS->startBlock->protectionStartEndPtr = currentBlock;
 
 			// At this point, either we're completely done, or we
 			// need to find a start point for a new PS to continue
@@ -1135,30 +1045,23 @@ public:
 			// if a previous P.S. has already marked out a next
 			// block, we have to use the same one
 			if (currentBlock->reservationContinuation != nullptr) {
-				currentPS->next = std::unique_ptr<
-					ReservationLL>(new ReservationLL{
-					currentBlock->reservationContinuation,
-					nullptr});
+				currentPS->next = std::unique_ptr<ReservationLL>(
+					new ReservationLL{currentBlock->reservationContinuation,
+									  nullptr});
 			} else { // find the next unprotected block
 				Block *nextBlock{currentBlock};
 				while (nextBlock->protectionLength != 0) {
 					nextBlock = nextBlock->next;
 					if (nextBlock->protectionLength == 1)
 						// Skip the whole P.S.
-						nextBlock =
-							nextBlock
-								->protectionStartEndPtr;
-					else if (nextBlock->protectionLength >
-						 1) {
+						nextBlock = nextBlock->protectionStartEndPtr;
+					else if (nextBlock->protectionLength > 1) {
 						//go back to start, skip whole P.S.
-						nextBlock =
-							nextBlock
-								->protectionStartEndPtr
-								->protectionStartEndPtr;
+						nextBlock = nextBlock->protectionStartEndPtr
+										->protectionStartEndPtr;
 					}
 				}
-				currentBlock->reservationContinuation =
-					nextBlock;
+				currentBlock->reservationContinuation = nextBlock;
 				currentBlock = nextBlock;
 			}
 		}
@@ -1172,10 +1075,8 @@ public:
 			Block *containingSection{startBlock->prev};
 			size_t precedeAmount{1};
 			if (containingSection->protectionLength > 1) {
-				precedeAmount =
-					containingSection->protectionLength;
-				containingSection =
-					containingSection->protectionStartEndPtr;
+				precedeAmount = containingSection->protectionLength;
+				containingSection = containingSection->protectionStartEndPtr;
 			}
 		}
 	}
@@ -1192,20 +1093,17 @@ public:
 		bool firstMergeEligbility{true};
 		bool lastMergeEligibility{false};
 		if (firstBlock->prev->protectionLength == 0 ||
-		    firstBlock->prev->logicalNext != firstBlock) {
+			firstBlock->prev->logicalNext != firstBlock) {
 			overridePS = nullptr;
 		} else {
 			if (firstBlock->prev->protectionLength == 1) {
 				overridePSOffset = 1;
 				overridePS = firstBlock->prev;
 			} else {
-				overridePSOffset =
-					firstBlock->prev->protectionLength;
-				overridePS =
-					firstBlock->prev->protectionStartEndPtr;
+				overridePSOffset = firstBlock->prev->protectionLength;
+				overridePS = firstBlock->prev->protectionStartEndPtr;
 			}
-			if (overridePS->protectionStartEndPtr ==
-			    firstBlock->prev) {
+			if (overridePS->protectionStartEndPtr == firstBlock->prev) {
 				firstMergeEligbility = false;
 			}
 			if (overridePS->protectionStartEndPtr == lastBlock) {
@@ -1219,7 +1117,7 @@ public:
 			// if block is already written with a higher-priority PS
 			// we don't need to do anything
 			if (currentBlock->protectionStartEndPtr != firstBlock &&
-			    currentBlock != firstBlock) {
+				currentBlock != firstBlock) {
 				currentBlock = currentBlock->next;
 				continue;
 			}
@@ -1227,8 +1125,7 @@ public:
 			// backtrack until either we're in 'free space' or we're
 			// in a PS long enough to contain currentBlock
 			while (overridePS != nullptr &&
-			       overridePS->totalProtectionLength <
-				       overridePSOffset) {
+				   overridePS->totalProtectionLength < overridePSOffset) {
 				//may be able to break out here if overridePS->prev->logicalNext != overridePS
 				overridePS = overridePS->prev;
 				overridePSOffset += 1;
@@ -1236,21 +1133,15 @@ public:
 				// Go back to beginning of PS if we're not
 				// already there
 				if (overridePS != nullptr &&
-				    overridePS->protectionLength != 1) {
-					overridePSOffset +=
-						overridePS->protectionLength -
-						1;
-					overridePS =
-						overridePS
-							->protectionStartEndPtr;
+					overridePS->protectionLength != 1) {
+					overridePSOffset += overridePS->protectionLength - 1;
+					overridePS = overridePS->protectionStartEndPtr;
 				}
-				if (overridePS->protectionStartEndPtr ==
-				    firstBlock->prev) {
+				if (overridePS->protectionStartEndPtr == firstBlock->prev) {
 					firstMergeEligbility = false;
 				}
 
-				if (overridePS->protectionStartEndPtr ==
-				    lastBlock) {
+				if (overridePS->protectionStartEndPtr == lastBlock) {
 					lastMergeEligibility = false;
 				}
 			}
@@ -1281,21 +1172,15 @@ public:
 			overridePSOffset += 1;
 			if (overridePS != nullptr) {
 				if (overridePS->protectionLength != 1) {
-					overridePSOffset +=
-						overridePS->protectionLength -
-						1;
-					overridePS =
-						overridePS
-							->protectionStartEndPtr;
+					overridePSOffset += overridePS->protectionLength - 1;
+					overridePS = overridePS->protectionStartEndPtr;
 				}
 
-				if (overridePS->protectionStartEndPtr ==
-				    firstBlock->prev) {
+				if (overridePS->protectionStartEndPtr == firstBlock->prev) {
 					firstMergeEligbility = false;
 				}
 
-				if (overridePS->protectionStartEndPtr ==
-				    lastBlock) {
+				if (overridePS->protectionStartEndPtr == lastBlock) {
 					lastMergeEligibility = false;
 				}
 			}
@@ -1306,16 +1191,14 @@ public:
 			// block of another PS
 			lastMergeEligibility =
 				lastMergeEligibility &&
-				lastBlock->protectionStartEndPtr
-						->protectionStartEndPtr !=
+				lastBlock->protectionStartEndPtr->protectionStartEndPtr !=
 					lastBlock;
 		}
 
 		Block *firstBlockNewPS{firstBlock->protectionStartEndPtr};
-		Block *lastBlockNewPS{
-			lastBlock->protectionLength == 1
-				? lastBlock
-				: lastBlock->protectionStartEndPtr};
+		Block *lastBlockNewPS{lastBlock->protectionLength == 1
+								  ? lastBlock
+								  : lastBlock->protectionStartEndPtr};
 		currentBlock = firstMergeEligbility ? firstBlock : lastBlock;
 	}
 
@@ -1325,10 +1208,7 @@ public:
 	 *
 	 * @return The amount of data in the circlebuf
 	 */
-	size_t bufferHealth() const noexcept
-	{
-		return ptrDifference(tail, head);
-	}
+	size_t bufferHealth() const noexcept { return ptrDifference(tail, head); }
 
 	const BCPtr &getHead() const { return head; }
 
