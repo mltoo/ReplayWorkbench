@@ -401,11 +401,13 @@ public:
 			this->blockLength = blockLength;
 
 			this->next = next;
-			if (this == next)
+			if (this == next) {
 				this->prev = next;
-			else
+			} else {
 				this->prev = next->prev;
+			}
 			this->logicalPrev = nullptr;
+			this->logicalNext = nullptr;
 			next->prev = this;
 			this->prev->next = this;
 
@@ -449,15 +451,17 @@ public:
 		{
 			assert(splitPoint >= this->blockStart);
 			std::size_t wholeLength{this->blockLength};
-			std::size_t newThisLength{
-				static_cast<std::size_t>(splitPoint - this->blockStart)};
-			std::size_t newBlockLength{wholeLength - newThisLength};
+			this->blockLength =
+				static_cast<std::size_t>(splitPoint - this->blockStart);
 
-			auto *newBlock{new Block{circlebuf, splitPoint, newBlockLength}};
+			Block *newBlock{new Block{circlebuf, splitPoint,
+									  wholeLength - this->blockLength}};
+
 			newBlock->next = this->next;
 			newBlock->prev = this;
-			this->blockLength = newThisLength;
-			newBlock->blockLength = newBlockLength;
+			this->next->prev = newBlock;
+			this->next = newBlock;
+
 			if (this->next->logicalPrev == this) {
 				this->next->logicalPrev = newBlock;
 			}
@@ -543,8 +547,8 @@ public:
 			if (this->logicalPrev != nullptr) {
 				// if logical prev exists to left, but head is still in first
 				// half, the two halves aren't logically linked UNLESS tail is
-				// also in the first half, and after head, in which case the
-				// previous write still crosses the split point
+				// also in the first half, in which case the previous write
+				// still crosses the split point
 				if (circlebuf.head.getBlock() == this &&
 					circlebuf.head.getPtr() < splitPoint &&
 					(circlebuf.tail.getBlock() != this ||
@@ -562,8 +566,9 @@ public:
 				// if logical next exists to right, but tail has passed halfway,
 				// the blocks aren't logically linked UNLESS head is also in the
 				// second half, in which case it has just written over the split
-				// point
-				if (circlebuf.tail.getBlock() == this &&
+				// point. We also always leave logicalNext intact in a PS.
+				if (protectionLength == 0 &&
+					circlebuf.tail.getBlock() == this &&
 					circlebuf.tail.getPtr() >= splitPoint &&
 					(circlebuf.head.getBlock() != this ||
 					 circlebuf.head.getPtr() < splitPoint)) {
@@ -716,15 +721,15 @@ private:
 	virtual void advanceTailToNextBlock()
 	{
 
-		Block *nextBlock{tail.getBlock()};
-		do {
-			nextBlock = nextBlock->next;
-			// TODO: can maybe do some optimisation with skipping
-			// reserved blocks here. O(num_of_blocks) is probably
-			// pretty fast though unless something insane is
-			// happening though, so not a major issue.
-		} while (nextBlock->logicalPrev != tail.getBlock());
+		Block *nextBlock{tail.getBlock()->logicalNext};
 		nextBlock->logicalPrev = nullptr;
+		if (tail.getBlock()->protectionLength != 0) {
+			// leave forward path intact if in a PS, so the PS holder can still
+			// scrub through the PS.
+			// When the PS is released, it can tell these breadcrumbs need to be
+			// removed if logicalPrev == nullptr and tail isn't in the block.
+			tail.getBlock()->logicalNext = nullptr;
+		}
 
 		tail.move(nextBlock, nextBlock->getStartPtr());
 	}
@@ -738,49 +743,41 @@ private:
 		Block *nextBlock = head.getBlock()->getNext();
 
 		/*
-		 * skip protected sections which begin after where the head
-		 * already was
+		 * skip protected sections which begin after where the head already was
 		 */
 		while (nextBlock->protectionLength == 1) {
 			/*
-			 * If the end of the current section is 'underneath'
-			 * another section, we can always skip the 'covering' 
-			 * section as it is guaranteed to have come after. We
-			 * keep skipping until the end block of a skipped
-			 * section is not 'covered' by an earlier section, at
-			 * which point the next block after this is guaranteed
-			 * to be either of a protected section started before
-			 * the entry to the above if-statement (job done), the
-			 * start of a new protected section (handled by outer
-			 * while-loop), or unprotected (job done)
+			 * If the end of the current section is 'underneath' another
+			 * section, we can always skip the 'covering' section as it is
+			 * guaranteed to have come after. We keep skipping until the end
+			 * block of a skipped section is not 'covered' by an earlier
+			 * section, at which point the next block after this is guaranteed
+			 * to be either of a protected section started before the entry to
+			 * the above if-statement (job done), the start of a new protected
+			 * section (handled by outer while-loop), or unprotected (job done)
 			 */
 			while (nextBlock->protectionStartEndPtr->protectionStartEndPtr !=
 				   nextBlock) {
-				nextBlock =
-					nextBlock->protectionStartEndPtr->protectionStartEndPtr;
+				//move to the start of the new covering section
+				if (nextBlock->protectionStartEndPtr->protectionLength == 1) {
+					// case where next PS starts at exactly the end of this one
+					nextBlock = nextBlock->protectionStartEndPtr;
+				} else {
+					// jumps somewhere in the next covering PS, then back to
+					// the start
+					nextBlock =
+						nextBlock->protectionStartEndPtr->protectionStartEndPtr;
+				}
 			}
 			nextBlock = nextBlock->protectionStartEndPtr->next;
 		}
 
-		while (nextBlock->protectionLength != 0) {
-			if (tail.getBlock() == nextBlock) {
-				while (nextBlock->protectionLength != 0) {
-					nextBlock->logicalPrev = nullptr;
-					nextBlock = nextBlock->getNext();
-				}
-				tail.move(nextBlock, nextBlock->getStartPtr());
-			} else {
-				if (nextBlock->protectionLength == 1 &&
-					nextBlock->protectionStartEndPtr->logicalPrev == nullptr) {
-					nextBlock = nextBlock->protectionStartEndPtr;
-				} else {
-					nextBlock = nextBlock->getNext();
-				}
-			}
-		}
+		// if tail is in the section we just skipped (either a PS we skipped or
+		// in the head's current block after head, move tail until it isn't
 		while (nextBlock->logicalPrev != nullptr) {
 			advanceTailToNextBlock();
 		}
+		head.getBlock()->logicalNext = nextBlock;
 		nextBlock->logicalPrev = head.getBlock();
 		head.move(nextBlock, nextBlock->getStartPtr());
 	}
@@ -866,10 +863,10 @@ public:
 		size_t numRead = 0;
 		while (numRead < count) {
 			size_t numToRead = count - numRead;
-			/* We only need to worry about the tail being in the 
-			 * same block as the head if it entered before the head
-			 * (and set logicalPrev=nullptr) and if there isn't
-			 * enough space between them for the new data.
+			/* We only need to worry about the tail being in the same block as
+			 * the head if it entered before the head
+			 * (and set logicalPrev=nullptr) and if there isn't enough space
+			 * between them for the new data.
 			 */
 			if (tail.getBlock() == head.getBlock() &&
 				(head.getBlock()->logicalPrev != nullptr) &&
@@ -988,28 +985,28 @@ public:
 				"Tried to reserve section of BlockCirclebuf outside written section!");
 		}
 		Block *startBlock;
-		if (startPtr.getPtr() != startPtr.getBlock()->getStartPtr()) {
-			// start ptr not at start of existing block, so we have
-			// to split the block
+		if (startPtr.getPtr() != startPtr.getBlock()->getStartPtr() ||
+			startPtr.getBlock()->protectionLength == 1) {
+			// start ptr must be the start of a block which isn't the start of a
+			// protected section, so we have to split the block. If this ptr
+			// is the start of an existing protected section, this moves the
+			// existing PS to a zero-length 'shim' block preceding ptr's block
 			startPtr.getBlock()->split(startPtr.getPtr(), *this);
-			// BCPtr should have been updated with the new block it
-			// sits in
-			assert(startPtr.getPtr() == startPtr.getBlock()->getStartPtr());
-			startBlock = startPtr.getBlock();
-		} else if (startPtr.getBlock()->protectionLength == 1) {
-			// block is the start of an existing protected section;
-			// we have to insert a 'shim' block to hold the data of
-			// the new P.S.
-			Block *shimBlock =
-				new Block(*this, startPtr.getPtr(), 0, startPtr.getBlock());
-			shimBlock->logicalPrev = startPtr.getBlock()->logicalPrev;
-			startPtr.getBlock()->logicalPrev = shimBlock;
-			startBlock = shimBlock;
+			if (startPtr.getBlock()->protectionLength == 1) {
+				//move to the shim block
+				startBlock = startPtr.getBlock()->next;
+				assert(startBlock->protectionLength != 1);
+			} else {
+				startBlock = startPtr.getBlock();
+				assert(startPtr.getPtr() == startBlock->getStartPtr());
+			}
 		} else {
-			//start ptr is already the start of an unprotected block
+			// startPtr is already the start of a block which is not the start
+			// of a PS
 			startBlock = startPtr.getBlock();
 		}
 
+		//TODO(AT): replace with a std::list<Block*>
 		std::unique_ptr<ReservationLL> protectedSections{
 			new ReservationLL{startBlock, nullptr}};
 		ReservationLL *currentPS = protectedSections.get();
@@ -1052,10 +1049,10 @@ public:
 				lengthLeftToProtect -= currentBlock->blockLength;
 
 				if (currentBlock->next == currentBlock->logicalNext ||
-					currentBlock->protectionLength != 1) {
+					currentBlock->next->protectionLength != 1) {
 					// We're allowed into the next
 					// contiguous block
-					currentBlock->logicalNext = currentBlock->next;
+
 					currentBlock = currentBlock->next;
 				} else {
 					// need to add a new non-contiguous P.S.
@@ -1066,6 +1063,7 @@ public:
 			//Close of previous string of protected blocks
 			currentBlock->protectionStartEndPtr = currentPS->startBlock;
 			currentPS->startBlock->protectionStartEndPtr = currentBlock;
+			currentPS->startBlock->totalProtectionLength = protectionLength;
 
 			// At this point, either we're completely done, or we
 			// need to find a start point for a new PS to continue
@@ -1074,13 +1072,17 @@ public:
 				break;
 			}
 
-			// if a previous P.S. has already marked out a next
-			// block, we have to use the same one
 			if (currentBlock->reservationContinuation != nullptr) {
-				currentPS->next = std::unique_ptr<ReservationLL>(
-					new ReservationLL{currentBlock->reservationContinuation,
-									  nullptr});
-			} else { // find the next unprotected block
+				// if a previous P.S. has already marked out a next block, we
+				// have to use the same one
+				currentBlock = currentBlock->reservationContinuation;
+			} else if (currentBlock->logicalNext != nullptr) {
+				// if we're within the written section, continue protecting the
+				// written data
+				currentBlock = currentBlock->logicalNext;
+			} else {
+				// if outside the written section, find the next unprotected
+				// block and start protecting from there.
 				Block *nextBlock{currentBlock};
 				while (nextBlock->protectionLength != 0) {
 					nextBlock = nextBlock->next;
@@ -1096,6 +1098,15 @@ public:
 				currentBlock->reservationContinuation = nextBlock;
 				currentBlock = nextBlock;
 			}
+			if (currentBlock->protectionLength == 1) {
+				// if another PS already starts here, insert a shim block
+				currentBlock->split(currentBlock->getStartPtr(), *this);
+				// move to the shim block
+				currentBlock = currentBlock->next;
+				assert(currentBlock->protectionLength != 1);
+			}
+			currentPS->next = std::unique_ptr<ReservationLL>(
+				new ReservationLL{currentBlock, nullptr});
 		}
 		return protectedSections;
 	}

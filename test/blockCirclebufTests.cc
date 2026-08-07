@@ -62,11 +62,11 @@ TEST(BlockCirclebufTests, Protect)
 {
 	BlockCirclebuf<char> cb{4};
 	cb.write("1234", 4);
-	BlockCirclebuf<char>::BCPtr protectStart{cb.getHead().getBlock(), cb.getHead().getBlock()->getStartPtr() + 1};
+	BlockCirclebuf<char>::BCPtr protectStart{
+		cb.getHead().getBlock(), cb.getHead().getBlock()->getStartPtr() + 1};
 	auto protectedSection{cb.protect(protectStart, 2)};
 	cb.write("5678", 4);
 	EXPECT_EQ(*(protectStart.getPtr()), '2');
 	EXPECT_EQ(*(protectStart.getPtr() + 1), '3');
 	EXPECT_NE(cb.getTail().getPtr(), protectStart.getPtr());
-
 }
