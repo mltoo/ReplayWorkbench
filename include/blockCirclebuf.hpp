@@ -467,12 +467,17 @@ public:
 				this->next->prev = newBlock;
 				this->next = newBlock;
 			} else {
-				//TODO(AT): Write and run tests for this
-				Block *currentPS{this->protectionStartEndPtr};
-				auto currentDist{this->protectionLength + 1};
+				//TODO(AT): Write and run more tests for this
+				Block *currentPS{this->protectionLength == 1U
+									 ? this
+									 : this->protectionStartEndPtr};
+				Block *startingPS{currentPS};
+				std::size_t currentDist{this->protectionLength + 1U};
+				std::size_t distToSplit{currentDist};
 				Block *currentBlock{this->next};
+
 				do {
-					currentPS->totalProtectionLength += 1;
+					currentPS->totalProtectionLength += 1U;
 
 					// iterate from the current block to the end of the current
 					// protected section, bumping the running protection length
@@ -494,15 +499,42 @@ public:
 								higherPS->protectionStartEndPtr->next;
 						}
 						currentBlock = currentBlock->next;
+						currentDist++;
 					}
 
 					// move to the next surrounding PS
-					currentPS = currentPS->prev;
-					currentDist++;
+					for (;;) {
+						Block *candidatePS{currentPS->prev};
+						currentDist++;
+						distToSplit++;
 
-					if (currentPS->protectionLength != 1) {
-						currentDist += (currentPS->protectionLength - 1);
-						currentPS = currentPS->protectionStartEndPtr;
+						if (candidatePS->protectionLength != 1) {
+							currentDist += (candidatePS->protectionLength - 1);
+							distToSplit += (candidatePS->protectionLength - 1);
+							candidatePS = currentPS->protectionStartEndPtr;
+						}
+
+						if (currentPS->totalProtectionLength > currentDist) {
+							// if the PS extends over the current end pointer,
+                            // process it and increment its blocks'
+							// protectionLengths
+							currentPS = candidatePS;
+							break;
+						} else if (candidatePS->totalProtectionLength >=
+								   distToSplit) {
+                            // if the PS is overlapped from the split to the
+                            // current end pointer, but contains the split
+                            // itself, extend its total length, but continue
+                            // iterating back through the PSs
+							candidatePS->totalProtectionLength++;
+                            if (candidatePS->protectionStartEndPtr == this) {
+                                candidatePS->protectionStartEndPtr = this->next;
+                            }
+						} else if (candidatePS == currentPS) {
+                            // if we've wrapped the loop, stop.
+							currentPS = nullptr;
+							break;
+						}
 					}
 
 				} while (currentPS != nullptr);
