@@ -318,4 +318,66 @@ TEST(BlockCirclebufTests, OverlappingUnprotect)
 	std::fill(readResult.begin(), readResult.end(), 0U);
 	EXPECT_EQ(cb.read(readResult.data(), 20U), 10U);
 	EXPECT_STREQ(readResult.data(), "ijkl mnop ");
+
+	std::fill(readResult.begin(), readResult.end(), 0U);
+	std::memcpy(readResult.data(), firstProtectStart.getPtr(), 10U);
+	EXPECT_STREQ(readResult.data(), firstExpected.data());
+}
+
+TEST(BlockCirclebufTests, NonContiguousUnprotect)
+{
+	BlockCirclebuf<char> cb{20U};
+	BlockCirclebuf<char>::BCPtr firstProtectStart{cb.getHead().getBlock(),
+												  cb.getHead().getPtr() + 7U};
+	BlockCirclebuf<char>::BCPtr secondProtectStart{cb.getHead().getBlock(),
+												   cb.getHead().getPtr() + 3U};
+	cb.write("ABCD EFGH ", 10U);
+	auto firstRes{cb.protect(firstProtectStart, 5U)};
+	cb.write("IJKL MNOP ", 10U);
+	cb.write("abcd efgh ijkl ", 15U);
+	auto secondRes{cb.protect(secondProtectStart, 10U)};
+	cb.write("QRST UVWX YZqr stuv ", 20U);
+
+	std::size_t numRead{0U};
+	std::string_view firstExpected{"GH IJ"};
+	auto currentBlock{firstProtectStart.getBlock()};
+	while (numRead < 5U) {
+		for (std::size_t i = 0U; i < currentBlock->getLength(); ++i) {
+			EXPECT_EQ((*(currentBlock->getStartPtr() + i)),
+					  (firstExpected.at(numRead++)));
+		}
+		currentBlock = currentBlock->getLogicalNext();
+	}
+
+	std::string_view secondExpected{"d efgh ijk"};
+	currentBlock = secondProtectStart.getBlock();
+	numRead = 0U;
+	while (numRead < 10U) {
+		for (std::size_t i = 0U; i < currentBlock->getLength(); ++i) {
+			EXPECT_EQ((*(currentBlock->getStartPtr() + i)),
+					  (secondExpected.at(numRead++)));
+		}
+		currentBlock = currentBlock->getLogicalNext();
+	}
+	
+	std::array<char, 20U> readResult{};
+	EXPECT_EQ(cb.read(readResult.data(), 20U), 5U);
+	EXPECT_STREQ(readResult.data(), "stuv ");
+
+	cb.release(firstProtectStart.getBlock());
+	
+	cb.write("QWER TYUI OPAS DFGH ", 20U);
+	std::fill(readResult.begin(), readResult.end(), 0);
+	EXPECT_EQ(cb.read(readResult.data(), 20U), 10U);
+	EXPECT_STREQ(readResult.data(), "OPAS DFGH ");
+
+	currentBlock = secondProtectStart.getBlock();
+	numRead = 0U;
+	while (numRead < 10U) {
+		for (std::size_t i = 0U; i < currentBlock->getLength(); ++i) {
+			EXPECT_EQ((*(currentBlock->getStartPtr() + i)),
+					  (secondExpected.at(numRead++)));
+		}
+		currentBlock = currentBlock->getLogicalNext();
+	}
 }
