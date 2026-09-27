@@ -291,6 +291,34 @@ public:
 	// several reservations in an LL to be able to do non-contiguous
 	// protections.
 	struct ReservationLL {
+
+		ReservationLL(Block *startBlock, std::unique_ptr<ReservationLL> next)
+			: startBlock{startBlock}, next{std::move(next)}
+		{
+		}
+
+		~ReservationLL()
+		{
+			//TODO(AT): implement
+		}
+
+		ReservationLL(ReservationLL &&other) noexcept
+			: startBlock{other.startBlock}, next{std::move(other.next)}
+		{
+			other.startBlock = nullptr;
+		}
+
+		ReservationLL &operator=(ReservationLL &&other) noexcept
+		{
+			//TODO(AT): potentially need to handle destruction of the old value
+			this->startBlock = other.startBlock;
+			other.startBlock = nullptr;
+			this->next = std::move(other.next);
+		}
+
+		ReservationLL(ReservationLL const &) = delete;
+		ReservationLL &operator=(ReservationLL const &) = delete;
+
 		Block *startBlock;
 		std::unique_ptr<ReservationLL> next = nullptr;
 	};
@@ -469,8 +497,9 @@ public:
 				Block *startingPS{currentPS};
 				std::size_t currentDist{this->protectionLength + 1U};
 				std::size_t distToSplit{currentDist};
-				this->next->protectionStartEndPtr = this->protectionStartEndPtr;
-				this->next->protectionLength = this->protectionLength;
+				this->next->protectionStartEndPtr = currentPS;
+				this->next->protectionLength =
+					this->protectionLength; //gets incremented later
 				if (this->protectionLength == 1 &&
 					this->totalProtectionLength == 1U) {
 					this->protectionStartEndPtr = this->next;
@@ -508,6 +537,11 @@ public:
 						Block *candidatePS{currentPS->prev};
 						currentDist++;
 						distToSplit++;
+
+						if (candidatePS->protectionLength == 0U) {
+							currentPS = nullptr;
+							break;
+						}
 
 						if (candidatePS->protectionLength != 1) {
 							currentDist += (candidatePS->protectionLength - 1);
@@ -665,6 +699,20 @@ public:
 		Block *getPrev() const noexcept { return prev; }
 
 		/**
+		 * @return The block which comes after the current one in the 'flow' of
+		 * written blocks. {@code nullptr} if this block is not yet
+		 * fully written.
+		 */
+		Block *getLogicalNext() const noexcept { return logicalNext; }
+
+		/**
+		 * @return The block which comes before the current one in the 'flow'
+		 * of written blocks. Set to {@code nullptr} if this block has not yet
+         * begun to be written.
+		 */
+		Block *getLogicalPrev() const noexcept { return logicalNext; }
+
+		/**
 		 * Attempt to merge a block with the next block. Intended for use after
          * removing read/write protection from a block.
 		 *
@@ -731,7 +779,7 @@ private:
 
 		Block *nextBlock{tail.getBlock()->logicalNext};
 		nextBlock->logicalPrev = nullptr;
-		if (tail.getBlock()->protectionLength != 0) {
+		if (tail.getBlock()->protectionLength == 0U) {
 			// leave forward path intact if in a PS, so the PS holder can still
 			// scrub through the PS.
 			// When the PS is released, it can tell these breadcrumbs need to be
@@ -1019,9 +1067,8 @@ public:
 			startBlock = startPtr.getBlock();
 		}
 
-		//TODO(AT): replace with a std::list<Block*>
-		std::unique_ptr<ReservationLL> protectedSections{
-			new ReservationLL{startBlock, nullptr}};
+		auto protectedSections{
+			std::make_unique<ReservationLL>(startBlock, nullptr)};
 		ReservationLL *currentPS = protectedSections.get();
 
 		size_t lengthLeftToProtect = length;
@@ -1118,8 +1165,9 @@ public:
 				currentBlock = currentBlock->next;
 				assert(currentBlock->protectionLength != 1);
 			}
-			currentPS->next = std::unique_ptr<ReservationLL>(
-				new ReservationLL{currentBlock, nullptr});
+			currentPS->next =
+				std::make_unique<ReservationLL>(currentBlock, nullptr);
+			currentPS = currentPS->next.get();
 		}
 		return protectedSections;
 	}

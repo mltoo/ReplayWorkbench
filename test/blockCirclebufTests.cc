@@ -75,8 +75,8 @@ TEST(BlockCirclebufTests, ProtectOverTip)
 {
 	BlockCirclebuf<char> cb{10};
 	cb.write("12", 2);
-	BlockCirclebuf<char>::BCPtr protectStart{
-		cb.getHead().getBlock(), cb.getHead().getPtr()};
+	BlockCirclebuf<char>::BCPtr protectStart{cb.getHead().getBlock(),
+											 cb.getHead().getPtr()};
 	cb.write("34", 2);
 	auto protectedSection{cb.protect(protectStart, 4)};
 	cb.write("AB34567890", 10);
@@ -94,15 +94,14 @@ TEST(BlockCirclebufTests, ProtectOverTip)
 	EXPECT_STREQ(readResult.data(), "GHIJKL");
 	EXPECT_EQ(cb.read(readResult.data(), 10U), 0U);
 	EXPECT_STREQ(readResult.data(), "GHIJKL");
-
 }
 
 TEST(BlockCirclebufTests, ReadProtectedOnce)
 {
 	BlockCirclebuf<char> cb{10U};
 	cb.write("12", 2U);
-	BlockCirclebuf<char>::BCPtr protectStart{
-		cb.getHead().getBlock(), cb.getHead().getPtr()};
+	BlockCirclebuf<char>::BCPtr protectStart{cb.getHead().getBlock(),
+											 cb.getHead().getPtr()};
 	cb.write("34", 2U);
 	auto protectedSection{cb.protect(protectStart, 4U)};
 	cb.write("AB", 2U);
@@ -121,3 +120,48 @@ TEST(BlockCirclebufTests, ReadProtectedOnce)
 	EXPECT_EQ(cb.read(readResult.data(), 10U), 0U);
 	EXPECT_STREQ(readResult.data(), "567890");
 }
+
+TEST(BlockCirclebufTests, OverlappingPS)
+{
+	BlockCirclebuf<char> cb{20U};
+	cb.write("ABCD EFGH IJKL MNOP ", 20U);
+	BlockCirclebuf<char>::BCPtr firstProtectStart{cb.getTail().getBlock(),
+												  cb.getTail().getPtr() + 5U};
+	BlockCirclebuf<char>::BCPtr secondProtectStart{cb.getTail().getBlock(),
+												   cb.getTail().getPtr() + 7U};
+	cb.protect(firstProtectStart, 10U);
+	cb.protect(secondProtectStart, 10U);
+
+	std::array<char, 21U> readResult{};
+	EXPECT_EQ(cb.read(readResult.data(), 20U), 20U);
+	EXPECT_STREQ(readResult.data(), "ABCD EFGH IJKL MNOP ");
+
+	cb.write("12345678901234567890", 20U);
+
+	std::string_view firstExpected{"EFGH IJKL "};
+	std::size_t numRead{0U};
+	auto currentBlock{firstProtectStart.getBlock()};
+	while (numRead < 10U) {
+		for (std::size_t i = 0U; i < currentBlock->getLength(); ++i) {
+			EXPECT_EQ((*(currentBlock->getStartPtr() + i)),
+					  (firstExpected.at(numRead++)));
+		}
+		currentBlock = currentBlock->getLogicalNext();
+	}
+
+	std::string_view secondExpected{"GH IJKL MN"};
+	currentBlock = secondProtectStart.getBlock();
+	numRead = 0U;
+	while (numRead < 10U) {
+		for (std::size_t i = 0U; i < currentBlock->getLength(); ++i) {
+			EXPECT_EQ((*(currentBlock->getStartPtr() + i)),
+					  (secondExpected.at(numRead++)));
+		}
+		currentBlock = currentBlock->getLogicalNext();
+	}
+
+	std::fill(readResult.begin(), readResult.end(), 0U);
+	EXPECT_EQ(cb.read(readResult.data(), 20U), 8U);
+	EXPECT_STREQ(readResult.data(), "34567890");
+}
+
