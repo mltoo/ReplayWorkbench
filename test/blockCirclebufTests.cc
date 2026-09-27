@@ -165,3 +165,47 @@ TEST(BlockCirclebufTests, OverlappingPS)
 	EXPECT_STREQ(readResult.data(), "34567890");
 }
 
+TEST(BlockCirclebufTests, ReverseOverlappingPS)
+{
+	BlockCirclebuf<char> cb{20U};
+	cb.write("ABCD EFGH IJKL MNOP ", 20U);
+	BlockCirclebuf<char>::BCPtr firstProtectStart{cb.getTail().getBlock(),
+												  cb.getTail().getPtr() + 7U};
+	BlockCirclebuf<char>::BCPtr secondProtectStart{cb.getTail().getBlock(),
+												   cb.getTail().getPtr() + 5U};
+	cb.protect(firstProtectStart, 10U);
+	cb.protect(secondProtectStart, 10U);
+
+	std::array<char, 21U> readResult{};
+	EXPECT_EQ(cb.read(readResult.data(), 20U), 20U);
+	EXPECT_STREQ(readResult.data(), "ABCD EFGH IJKL MNOP ");
+
+	cb.write("12345678901234567890", 20U);
+
+	std::size_t numRead{0U};
+	std::string_view firstExpected{"GH IJKL MN"};
+	auto currentBlock{firstProtectStart.getBlock()};
+	while (numRead < 10U) {
+		for (std::size_t i = 0U; i < currentBlock->getLength(); ++i) {
+			EXPECT_EQ((*(currentBlock->getStartPtr() + i)),
+					  (firstExpected.at(numRead++)));
+		}
+		currentBlock = currentBlock->getLogicalNext();
+	}
+
+	std::string_view secondExpected{"EFGH IJKL "};
+	currentBlock = secondProtectStart.getBlock();
+	numRead = 0U;
+	while (numRead < 10U) {
+		for (std::size_t i = 0U; i < currentBlock->getLength(); ++i) {
+			EXPECT_EQ((*(currentBlock->getStartPtr() + i)),
+					  (secondExpected.at(numRead++)));
+		}
+		currentBlock = currentBlock->getLogicalNext();
+	}
+
+	std::fill(readResult.begin(), readResult.end(), 0U);
+	EXPECT_EQ(cb.read(readResult.data(), 20U), 8U);
+	EXPECT_STREQ(readResult.data(), "34567890");
+}
+

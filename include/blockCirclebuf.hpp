@@ -535,13 +535,14 @@ public:
 					// move to the next surrounding PS
 					for (;;) {
 						Block *candidatePS{currentPS->prev};
-						currentDist++;
-						distToSplit++;
 
 						if (candidatePS->protectionLength == 0U) {
 							currentPS = nullptr;
 							break;
 						}
+
+						currentDist++;
+						distToSplit++;
 
 						if (candidatePS->protectionLength != 1) {
 							currentDist += (candidatePS->protectionLength - 1);
@@ -570,6 +571,7 @@ public:
 							currentPS = nullptr;
 							break;
 						}
+						currentPS = candidatePS;
 					}
 
 				} while (currentPS != nullptr);
@@ -1094,6 +1096,8 @@ public:
 					std::min(protectionLength++,
 							 currentBlock->protectionLength - 1) +
 					1;
+				currentPS->startBlock->totalProtectionLength = protectionLength;
+				currentPS->startBlock->protectionStartEndPtr = currentBlock;
 
 				if (currentBlock->protectionLength == protectionLength) {
 					currentBlock->protectionStartEndPtr = currentPS->startBlock;
@@ -1119,11 +1123,6 @@ public:
 					break;
 				}
 			}
-
-			//Close of previous string of protected blocks
-			currentBlock->protectionStartEndPtr = currentPS->startBlock;
-			currentPS->startBlock->protectionStartEndPtr = currentBlock;
-			currentPS->startBlock->totalProtectionLength = protectionLength;
 
 			// At this point, either we're completely done, or we
 			// need to find a start point for a new PS to continue
