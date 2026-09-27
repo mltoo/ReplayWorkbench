@@ -1171,138 +1171,69 @@ public:
 		return protectedSections;
 	}
 
-	void release(std::unique_ptr<ReservationLL> reservation)
+	void release(Block *block)
 	{
-		while (reservation != nullptr) {
-			Block *startBlock{reservation->startBlock};
-			Block *containingSection{startBlock->prev};
-			size_t precedeAmount{1};
-			if (containingSection->protectionLength > 1) {
-				precedeAmount = containingSection->protectionLength;
-				containingSection = containingSection->protectionStartEndPtr;
-			}
-		}
-	}
-
-	void release(BCPtr &startPtr)
-	{
-		Block *firstBlock{startPtr.getBlock()};
-		Block *lastBlock{firstBlock->protectionStartEndPtr};
-		size_t originalLength{firstBlock->totalProtectionLength};
-		// the newest PS which may overlap the current block
-		Block *overridePS;
-		// distance between override and current block
-		size_t overridePSOffset;
-		bool firstMergeEligbility{true};
-		bool lastMergeEligibility{false};
-		if (firstBlock->prev->protectionLength == 0 ||
-			firstBlock->prev->logicalNext != firstBlock) {
-			overridePS = nullptr;
-		} else {
-			if (firstBlock->prev->protectionLength == 1) {
-				overridePSOffset = 1;
-				overridePS = firstBlock->prev;
-			} else {
-				overridePSOffset = firstBlock->prev->protectionLength;
-				overridePS = firstBlock->prev->protectionStartEndPtr;
-			}
-			if (overridePS->protectionStartEndPtr == firstBlock->prev) {
-				firstMergeEligbility = false;
-			}
-			if (overridePS->protectionStartEndPtr == lastBlock) {
-				lastMergeEligibility = false;
-			}
-		}
-		Block *firstOverridePS{overridePS};
-		Block *currentBlock{firstBlock};
-		do {
-			overridePSOffset += 1;
-			// if block is already written with a higher-priority PS
-			// we don't need to do anything
-			if (currentBlock->protectionStartEndPtr != firstBlock &&
-				currentBlock != firstBlock) {
-				currentBlock = currentBlock->next;
-				continue;
-			}
-
-			// backtrack until either we're in 'free space' or we're
-			// in a PS long enough to contain currentBlock
-			while (overridePS != nullptr &&
-				   overridePS->totalProtectionLength < overridePSOffset) {
-				//may be able to break out here if overridePS->prev->logicalNext != overridePS
-				overridePS = overridePS->prev;
-				overridePSOffset += 1;
-
-				// Go back to beginning of PS if we're not
-				// already there
-				if (overridePS != nullptr &&
-					overridePS->protectionLength != 1) {
-					overridePSOffset += overridePS->protectionLength - 1;
-					overridePS = overridePS->protectionStartEndPtr;
-				}
-				if (overridePS->protectionStartEndPtr == firstBlock->prev) {
-					firstMergeEligbility = false;
-				}
-
-				if (overridePS->protectionStartEndPtr == lastBlock) {
-					lastMergeEligibility = false;
+		//TODO(AT): RAII interface to this.
+		assert(block->protectionLength == 1U);
+		Block *currentBlock{block};
+		Block *wrappingPS{block->prev};
+		std::size_t wrappingDist{1};
+		auto originalLength{currentBlock->totalProtectionLength};
+		for (std::size_t i{0U}; i < originalLength; ++i) {
+			if (currentBlock->protectionStartEndPtr == currentBlock) {
+				if (wrappingPS == nullptr) {
+					currentBlock->protectionStartEndPtr = nullptr;
+					currentBlock->protectionLength = 0U;
+					if (currentBlock->logicalPrev != nullptr &&
+						currentBlock->logicalPrev->logicalNext !=
+							currentBlock) {
+						currentBlock->logicalPrev = nullptr;
+					}
+					if (currentBlock->logicalPrev == nullptr &&
+						(tail.getBlock() != currentBlock ||
+						 (head.getBlock() == currentBlock &&
+						  head.getPtr() > tail.getPtr()))) {
+						currentBlock->logicalNext = nullptr;
+					}
+				} else {
+					for (;;) {
+						if (wrappingPS->protectionLength == 0U) {
+							wrappingPS = nullptr;
+							break;
+						} else if (wrappingPS->protectionLength != 1U) {
+							wrappingDist += wrappingPS->protectionLength;
+							wrappingPS = wrappingPS->protectionStartEndPtr;
+							continue;
+						} else if (wrappingDist + i <
+								   wrappingPS->totalProtectionLength) {
+							break;
+						} else {
+							++wrappingDist;
+							wrappingPS = wrappingPS->prev;
+						}
+					}
+					if (wrappingPS != nullptr) {
+						currentBlock->protectionStartEndPtr = wrappingPS;
+						currentBlock->protectionLength = wrappingDist + i;
+					} else {
+						currentBlock->protectionStartEndPtr = nullptr;
+						currentBlock->protectionLength = 0U;
+						if (currentBlock->logicalPrev != nullptr &&
+							currentBlock->logicalPrev->logicalNext !=
+								currentBlock) {
+							currentBlock->logicalPrev = nullptr;
+						}
+						if (currentBlock->logicalPrev == nullptr &&
+							(tail.getBlock() != currentBlock ||
+							 (head.getBlock() == currentBlock &&
+							  head.getPtr() > tail.getPtr()))) {
+							currentBlock->logicalNext = nullptr;
+						}
+					}
 				}
 			}
-
-			if (overridePS == nullptr) {
-				currentBlock->protectionStartEndPtr = nullptr;
-				currentBlock->protectionLength = 0;
-				currentBlock->totalProtectionLength = 0;
-				currentBlock = currentBlock->next;
-				continue;
-			}
-
-			// overridePS->totalProtectionLength must be >= overridePSOffset
-			// therefore block is inside overridePS
-			currentBlock->protectionLength = overridePSOffset;
-			currentBlock->protectionStartEndPtr = overridePS;
-			currentBlock->totalProtectionLength = 0;
 			currentBlock = currentBlock->next;
-			continue;
-
-		} while (currentBlock != lastBlock);
-
-		// Continue going back through preceding PSs until we're in free
-		// space or back at the start (may never be possible)
-		while (overridePS != nullptr && overridePS != firstOverridePS) {
-			// may be able  to break out here if overridePS->prev->logicalNext != overridePS
-			overridePS = overridePS->prev;
-			overridePSOffset += 1;
-			if (overridePS != nullptr) {
-				if (overridePS->protectionLength != 1) {
-					overridePSOffset += overridePS->protectionLength - 1;
-					overridePS = overridePS->protectionStartEndPtr;
-				}
-
-				if (overridePS->protectionStartEndPtr == firstBlock->prev) {
-					firstMergeEligbility = false;
-				}
-
-				if (overridePS->protectionStartEndPtr == lastBlock) {
-					lastMergeEligibility = false;
-				}
-			}
 		}
-
-		if (lastBlock->protectionLength > 0) {
-			// check that the last block is not the first or last
-			// block of another PS
-			lastMergeEligibility =
-				lastMergeEligibility &&
-				lastBlock->protectionStartEndPtr->protectionStartEndPtr !=
-					lastBlock;
-		}
-
-		Block *firstBlockNewPS{firstBlock->protectionStartEndPtr};
-		Block *lastBlockNewPS{lastBlock->protectionLength == 1
-								  ? lastBlock
-								  : lastBlock->protectionStartEndPtr};
-		currentBlock = firstMergeEligbility ? firstBlock : lastBlock;
 	}
 
 	/**

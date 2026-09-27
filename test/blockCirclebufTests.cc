@@ -2,6 +2,7 @@
 #include <cstring>
 #include <gtest/gtest.h>
 #include "blockCirclebuf.hpp"
+#include <libavcodec/avcodec.h>
 using namespace ReplayWorkbench;
 
 TEST(BlockCirclebufTests, SimpleWriteRead)
@@ -207,5 +208,65 @@ TEST(BlockCirclebufTests, ReverseOverlappingPS)
 	std::fill(readResult.begin(), readResult.end(), 0U);
 	EXPECT_EQ(cb.read(readResult.data(), 20U), 8U);
 	EXPECT_STREQ(readResult.data(), "34567890");
+}
+
+TEST(BlockCirclebufTests, NonContiguousPS)
+{
+	BlockCirclebuf<char> cb{20U};
+	BlockCirclebuf<char>::BCPtr firstProtectStart{cb.getHead().getBlock(),
+												  cb.getHead().getPtr() + 7U};
+	BlockCirclebuf<char>::BCPtr secondProtectStart{cb.getHead().getBlock(),
+												   cb.getHead().getPtr() + 3U};
+	cb.write("ABCD EFGH ", 10U);
+	auto firstRes{cb.protect(firstProtectStart, 5U)};
+	cb.write("IJKL MNOP ", 10U);
+	cb.write("abcd efgh ijkl ", 15U);
+	auto secondRes{cb.protect(secondProtectStart, 10U)};
+	cb.write("QRST UVWX YZqr stuv ", 20U);
+
+	std::size_t numRead{0U};
+	std::string_view firstExpected{"GH IJ"};
+	auto currentBlock{firstProtectStart.getBlock()};
+	while (numRead < 5U) {
+		for (std::size_t i = 0U; i < currentBlock->getLength(); ++i) {
+			EXPECT_EQ((*(currentBlock->getStartPtr() + i)),
+					  (firstExpected.at(numRead++)));
+		}
+		currentBlock = currentBlock->getLogicalNext();
+	}
+
+	std::string_view secondExpected{"d efgh ijk"};
+	currentBlock = secondProtectStart.getBlock();
+	numRead = 0U;
+	while (numRead < 10U) {
+		for (std::size_t i = 0U; i < currentBlock->getLength(); ++i) {
+			EXPECT_EQ((*(currentBlock->getStartPtr() + i)),
+					  (secondExpected.at(numRead++)));
+		}
+		currentBlock = currentBlock->getLogicalNext();
+	}
+	
+	std::array<char, 5U> readResult{};
+	EXPECT_EQ(cb.read(readResult.data(), 20U), 5U);
+	EXPECT_STREQ(readResult.data(), "stuv ");
+}
+
+TEST(BlockCirclebufTests, Unprotect)
+{
+	BlockCirclebuf<char> cb{4};
+	cb.write("1234", 4);
+	BlockCirclebuf<char>::BCPtr protectStart{
+		cb.getHead().getBlock(), cb.getHead().getBlock()->getStartPtr() + 1};
+	auto protectedSection{cb.protect(protectStart, 2)};
+	cb.write("5678", 4);
+	EXPECT_EQ(*(protectStart.getPtr()), '2');
+	EXPECT_EQ(*(protectStart.getPtr() + 1), '3');
+	EXPECT_NE(cb.getTail().getPtr(), protectStart.getPtr());
+	cb.release(protectedSection->startBlock);
+
+	cb.write("ABCD", 4U);
+	std::array<char, 5U> readResult{};
+	EXPECT_EQ(cb.read(readResult.data(), 4U), 4U);
+	EXPECT_STREQ(readResult.data(), "ABCD");
 }
 
