@@ -1180,7 +1180,8 @@ public:
 		std::size_t wrappingDist{1};
 		auto originalLength{currentBlock->totalProtectionLength};
 		for (std::size_t i{0U}; i < originalLength; ++i) {
-			if (currentBlock->protectionStartEndPtr == currentBlock) {
+			if (currentBlock->protectionStartEndPtr == currentBlock ||
+				currentBlock == block) {
 				if (wrappingPS == nullptr) {
 					currentBlock->protectionStartEndPtr = nullptr;
 					currentBlock->protectionLength = 0U;
