@@ -462,22 +462,19 @@ public:
 			this->next->prev = newBlock;
 			this->next = newBlock;
 
-			if (this->next->logicalPrev == this) {
-				this->next->logicalPrev = newBlock;
-			}
-			this->next->prev = newBlock;
-			this->next = newBlock;
-			if (this->protectionLength == 0) {
-				this->next->prev = newBlock;
-				this->next = newBlock;
-			} else {
-				//TODO(AT): Write and run more tests for this
+			if (this->protectionLength != 0) {
 				Block *currentPS{this->protectionLength == 1U
 									 ? this
 									 : this->protectionStartEndPtr};
 				Block *startingPS{currentPS};
 				std::size_t currentDist{this->protectionLength + 1U};
 				std::size_t distToSplit{currentDist};
+				this->next->protectionStartEndPtr = this->protectionStartEndPtr;
+				this->next->protectionLength = this->protectionLength;
+				if (this->protectionLength == 1 &&
+					this->totalProtectionLength == 1U) {
+					this->protectionStartEndPtr = this->next;
+				}
 				Block *currentBlock{this->next};
 
 				do {
@@ -520,22 +517,22 @@ public:
 
 						if (currentPS->totalProtectionLength > currentDist) {
 							// if the PS extends over the current end pointer,
-                            // process it and increment its blocks'
+							// process it and increment its blocks'
 							// protectionLengths
 							currentPS = candidatePS;
 							break;
 						} else if (candidatePS->totalProtectionLength >=
 								   distToSplit) {
-                            // if the PS is overlapped from the split to the
-                            // current end pointer, but contains the split
-                            // itself, extend its total length, but continue
-                            // iterating back through the PSs
+							// if the PS is overlapped from the split to the
+							// current end pointer, but contains the split
+							// itself, extend its total length, but continue
+							// iterating back through the PSs
 							candidatePS->totalProtectionLength++;
-                            if (candidatePS->protectionStartEndPtr == this) {
-                                candidatePS->protectionStartEndPtr = this->next;
-                            }
+							if (candidatePS->protectionStartEndPtr == this) {
+								candidatePS->protectionStartEndPtr = this->next;
+							}
 						} else if (candidatePS == currentPS) {
-                            // if we've wrapped the loop, stop.
+							// if we've wrapped the loop, stop.
 							currentPS = nullptr;
 							break;
 						}
@@ -544,40 +541,51 @@ public:
 				} while (currentPS != nullptr);
 			}
 
-			if (this->logicalPrev != nullptr) {
-				// if logical prev exists to left, but head is still in first
-				// half, the two halves aren't logically linked UNLESS tail is
-				// also in the first half, in which case the previous write
-				// still crosses the split point
+			if (newBlock->next->logicalPrev == this) {
+				newBlock->next->logicalPrev = newBlock;
+			}
+
+			if (this->logicalPrev == nullptr) {
+				// if no logical prev to left, unless head and tail are within
+				// this buffer and contain the split point between them, the new
+				// and previous blocks are not connected.
 				if (circlebuf.head.getBlock() == this &&
-					circlebuf.head.getPtr() < splitPoint &&
-					(circlebuf.tail.getBlock() != this ||
-					 circlebuf.tail.getPtr() >= splitPoint)) {
-					newBlock->logicalPrev = nullptr;
-				} else {
+					circlebuf.head.getPtr() >= splitPoint &&
+					circlebuf.tail.getBlock() == this &&
+					circlebuf.tail.getPtr() < splitPoint) {
 					newBlock->logicalPrev = this;
+				} else {
+					newBlock->logicalPrev = nullptr;
 				}
 			} else {
-				newBlock->logicalPrev = nullptr;
+				if (!(circlebuf.head.getBlock() == this &&
+					  circlebuf.head.getPtr() < splitPoint) ||
+					(circlebuf.tail.getBlock() == this &&
+					 circlebuf.tail.getPtr() < splitPoint)) {
+					newBlock->logicalPrev = this;
+				}
 			}
 
 			newBlock->logicalNext = this->logicalNext;
-			if (this->logicalNext != nullptr) {
-				// if logical next exists to right, but tail has passed halfway,
-				// the blocks aren't logically linked UNLESS head is also in the
-				// second half, in which case it has just written over the split
-				// point. We also always leave logicalNext intact in a PS.
-				if (protectionLength == 0 &&
-					circlebuf.tail.getBlock() == this &&
-					circlebuf.tail.getPtr() >= splitPoint &&
-					(circlebuf.head.getBlock() != this ||
-					 circlebuf.head.getPtr() < splitPoint)) {
-					this->logicalNext = nullptr;
-				} else {
-					this->logicalNext = newBlock;
-				}
-			} else {
+
+			if (circlebuf.head.getBlock() == this &&
+				circlebuf.head.getPtr() < splitPoint &&
+				(circlebuf.tail.getBlock() != this ||
+				 circlebuf.tail.getPtr() < circlebuf.head.getPtr() ||
+				 circlebuf.tail.getPtr() >= splitPoint)) {
 				this->logicalNext = nullptr;
+			} else if (this->protectionLength == 0 &&
+						   (circlebuf.tail.getBlock() == this &&
+							circlebuf.tail.getPtr() >= splitPoint &&
+							(circlebuf.head.getBlock() != this ||
+							 circlebuf.head.getPtr() >
+								 circlebuf.tail.getPtr())) ||
+					   (circlebuf.tail.getBlock() != this &&
+						circlebuf.head.getBlock() != this &&
+						this->logicalNext == nullptr)) {
+				this->logicalNext = nullptr;
+			} else {
+				this->logicalNext = newBlock;
 			}
 
 			BCPtr *oldPtrs{this->referencingPtrs};
@@ -980,17 +988,22 @@ public:
 	 */
 	std::unique_ptr<ReservationLL> protect(BCPtr const &startPtr, size_t length)
 	{
-		if (startPtr.getBlock()->logicalPrev == nullptr) {
+		if (startPtr.getBlock()->logicalPrev == nullptr &&
+			(head.getBlock() != startPtr.getBlock() ||
+			 head.getPtr() < startPtr.getPtr() ||
+			 (tail.getBlock() == startPtr.getBlock() &&
+			  tail.getPtr() >= startPtr.getPtr()))) {
 			throw std::runtime_error(
 				"Tried to reserve section of BlockCirclebuf outside written section!");
 		}
 		Block *startBlock;
 		if (startPtr.getPtr() != startPtr.getBlock()->getStartPtr() ||
 			startPtr.getBlock()->protectionLength == 1) {
-			// start ptr must be the start of a block which isn't the start of a
-			// protected section, so we have to split the block. If this ptr
-			// is the start of an existing protected section, this moves the
-			// existing PS to a zero-length 'shim' block preceding ptr's block
+			// start ptr must either not be at the start of a block or at the
+			// start of an existing protected section, so we have to split the
+			// block (or insert a 'shim' block). If this ptr is the start of an
+			// existing protected section, this moves the existing PS to a
+			// zero-length 'shim' block preceding ptr's block.
 			startPtr.getBlock()->split(startPtr.getPtr(), *this);
 			if (startPtr.getBlock()->protectionLength == 1) {
 				//move to the shim block
@@ -1018,6 +1031,14 @@ public:
 			Block *currentBlock = currentPS->startBlock;
 			size_t protectionLength = 0;
 			while (lengthLeftToProtect > 0) {
+				// Block is strictly greater than we need -
+				// split the bit we need off the front
+				if (currentBlock->blockLength > lengthLeftToProtect) {
+					currentBlock->split(currentBlock->getStartPtr() +
+											lengthLeftToProtect,
+										*this);
+				}
+
 				// Following hackery depends on protection
 				// length being unsigned, so 0-1 wraps around
 				static_assert(
@@ -1029,14 +1050,6 @@ public:
 
 				if (currentBlock->protectionLength == protectionLength) {
 					currentBlock->protectionStartEndPtr = currentPS->startBlock;
-				}
-
-				// Block is strictly greater than we need -
-				// split the bit we need off the front
-				if (currentBlock->blockLength > lengthLeftToProtect) {
-					currentBlock->split(currentBlock->getStartPtr() +
-											lengthLeftToProtect,
-										*this);
 				}
 
 				// Block is precisely the right size (possibly

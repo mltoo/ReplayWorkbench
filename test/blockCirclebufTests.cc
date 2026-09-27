@@ -70,3 +70,54 @@ TEST(BlockCirclebufTests, Protect)
 	EXPECT_EQ(*(protectStart.getPtr() + 1), '3');
 	EXPECT_NE(cb.getTail().getPtr(), protectStart.getPtr());
 }
+
+TEST(BlockCirclebufTests, ProtectOverTip)
+{
+	BlockCirclebuf<char> cb{10};
+	cb.write("12", 2);
+	BlockCirclebuf<char>::BCPtr protectStart{
+		cb.getHead().getBlock(), cb.getHead().getPtr()};
+	cb.write("34", 2);
+	auto protectedSection{cb.protect(protectStart, 4)};
+	cb.write("AB34567890", 10);
+	EXPECT_EQ(*(protectStart.getPtr()), '3');
+	EXPECT_EQ(*(protectStart.getPtr() + 1), '4');
+	EXPECT_EQ(*(protectStart.getPtr() + 2), 'A');
+	EXPECT_EQ(*(protectStart.getPtr() + 3), 'B');
+	std::array<char, 10U> readResult{};
+	EXPECT_EQ(cb.read(readResult.data(), 10U), 6U);
+	EXPECT_STREQ(readResult.data(), "567890");
+	EXPECT_EQ(cb.read(readResult.data(), 10U), 0U);
+	EXPECT_STREQ(readResult.data(), "567890");
+	cb.write("CDEFGHIJKL", 10U);
+	EXPECT_EQ(cb.read(readResult.data(), 10U), 6U);
+	EXPECT_STREQ(readResult.data(), "GHIJKL");
+	EXPECT_EQ(cb.read(readResult.data(), 10U), 0U);
+	EXPECT_STREQ(readResult.data(), "GHIJKL");
+
+}
+
+TEST(BlockCirclebufTests, ReadProtectedOnce)
+{
+	BlockCirclebuf<char> cb{10U};
+	cb.write("12", 2U);
+	BlockCirclebuf<char>::BCPtr protectStart{
+		cb.getHead().getBlock(), cb.getHead().getPtr()};
+	cb.write("34", 2U);
+	auto protectedSection{cb.protect(protectStart, 4U)};
+	cb.write("AB", 2U);
+	std::array<char, 10U> readResult{};
+	EXPECT_EQ(cb.read(readResult.data(), 10U), 6U);
+	EXPECT_STREQ(readResult.data(), "1234AB");
+	EXPECT_EQ(cb.read(readResult.data(), 10U), 0U);
+	EXPECT_STREQ(readResult.data(), "1234AB");
+	cb.write("34567890", 8U);
+	EXPECT_EQ(*(protectStart.getPtr()), '3');
+	EXPECT_EQ(*(protectStart.getPtr() + 1), '4');
+	EXPECT_EQ(*(protectStart.getPtr() + 2), 'A');
+	EXPECT_EQ(*(protectStart.getPtr() + 3), 'B');
+	EXPECT_EQ(cb.read(readResult.data(), 10U), 6U);
+	EXPECT_STREQ(readResult.data(), "567890");
+	EXPECT_EQ(cb.read(readResult.data(), 10U), 0U);
+	EXPECT_STREQ(readResult.data(), "567890");
+}
